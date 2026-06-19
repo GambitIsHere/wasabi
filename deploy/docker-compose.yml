@@ -1,0 +1,52 @@
+# Wasabi — self-hosted experimentation platform. Runs alongside your other
+# stacks (n8n, termix). The SQLite store persists in a named volume; the admin
+# UI sits behind Caddy basic-auth while /api/decide + /api/capture stay public
+# so storefronts can call them. NEVER commit the .env (holds the Metabase key).
+services:
+  wasabi:
+    build:
+      context: ../dashboard
+      dockerfile: Dockerfile
+    container_name: wasabi
+    restart: unless-stopped
+    environment:
+      WASABI_DB: /app/.data/wasabi.db
+      METABASE_URL: ${METABASE_URL}
+      METABASE_API_KEY: ${METABASE_API_KEY}   # read-only key — for the live P&L verdict
+      TZ: ${GENERIC_TIMEZONE:-Europe/London}
+    volumes:
+      - wasabi-data:/app/.data                # <-- the experiment store. Back this up.
+    networks: [internal]
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: wasabi-caddy
+    restart: unless-stopped
+    depends_on: [wasabi]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      WASABI_DOMAIN: ${WASABI_DOMAIN}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER}
+      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [internal]
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  wasabi-data: { driver: local }
+  caddy_data: { driver: local }
+  caddy_config: { driver: local }
+
+networks:
+  internal: { driver: bridge }

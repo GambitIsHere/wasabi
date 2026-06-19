@@ -1,0 +1,23 @@
+{
+	email {$LETSENCRYPT_EMAIL}
+}
+
+{$WASABI_DOMAIN} {
+	encode zstd gzip
+
+	# Public assignment + capture endpoints — storefronts call these cross-origin,
+	# so they must NOT be behind auth. (Assignment is keyed by distinctId in the body.)
+	@public path /api/decide /api/decide/* /api/capture /api/capture/*
+	handle @public {
+		reverse_proxy wasabi:3000
+	}
+
+	# Everything else — the admin UI (create / activate / edit experiments) — is
+	# protected. Put it behind Tailscale/VPN too if you can; basic-auth is the floor.
+	handle {
+		basic_auth {
+			{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+		}
+		reverse_proxy wasabi:3000
+	}
+}
