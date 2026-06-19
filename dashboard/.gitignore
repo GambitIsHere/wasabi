@@ -29,3 +29,6 @@ next-env.d.ts
 
 # vercel
 .vercel
+
+# wasabi local SQLite store (long-running self-hosted server)
+/.data/

@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getExperiment, getExperiments } from "@/lib/experiments";
+import { getExperiment } from "@/lib/experiments";
 import { StatusPill, ControlBadge } from "@/components/pills";
 import { AssignmentTester } from "@/components/AssignmentTester";
 import { LiveResults } from "@/components/LiveResults";
+import { ExperimentControls } from "@/components/ExperimentControls";
 
-// Pre-render the known experiment routes at build time.
-export function generateStaticParams() {
-  return getExperiments().map((e) => ({ key: e.flag.key }));
-}
+// DB-backed — render dynamically so newly-created experiments resolve and edits
+// reflect immediately (routes are no longer known at build time).
+export const dynamic = "force-dynamic";
 
 export default async function ExperimentDetailPage({
   params,
@@ -33,11 +33,27 @@ export default async function ExperimentDetailPage({
 
       {/* 1. Header */}
       <header className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight text-fg">
-            {experiment.name}
-          </h1>
-          <StatusPill active={experiment.flag.active} />
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight text-fg">
+              {experiment.name}
+            </h1>
+            <StatusPill active={experiment.flag.active} />
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/experiments/${experiment.flag.key}/edit`}
+              className="rounded-lg border border-line-strong bg-surface px-3.5 py-2 text-sm font-medium text-muted transition-colors hover:border-accent/40 hover:text-accent"
+            >
+              Edit
+            </Link>
+            <ExperimentControls
+              experimentKey={experiment.flag.key}
+              active={experiment.flag.active}
+              variant="header"
+              redirectOnDelete="/"
+            />
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-faint">
           <span className="font-mono text-muted">{experiment.flag.key}</span>
