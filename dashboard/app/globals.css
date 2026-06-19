@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Wasabi dark theme. Tailwind v4 CSS-first config: theme tokens live in @theme
+   and become utilities (bg-surface, text-muted, border-line, etc).
+--------------------------------------------------------------------------- */
+@theme {
+  --color-bg: #0a0b0d;
+  --color-bg-elevated: #111317;
+  --color-surface: #15181d;
+  --color-surface-hover: #1b1f26;
+  --color-line: #23272f;
+  --color-line-strong: #2e333d;
+
+  --color-fg: #e8eaed;
+  --color-muted: #9aa3af;
+  --color-faint: #6b7280;
+
+  --color-accent: #84cc16; /* wasabi green */
+  --color-accent-soft: #4d7c0f;
+
+  --color-good: #22c55e;
+  --color-warn: #f59e0b;
+  --color-bad: #ef4444;
+  --color-info: #38bdf8;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas,
+    monospace;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Subtle, theme-matched scrollbars so nothing flashes a light gutter. */
+* {
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Skeleton shimmer for loading states. */
+@keyframes wasabi-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+.skeleton {
+  background: var(--color-surface-hover);
+  border-radius: 0.5rem;
+  animation: wasabi-pulse 1.4s ease-in-out infinite;
+}

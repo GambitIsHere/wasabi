@@ -1,0 +1,10 @@
+{
+  "name": "@sanjow/wasabi-decision-helper",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Turns a live experiment's per-variant payment P&L into a business verdict — two-proportion significance vs control + an honest ship/keep-running/inconclusive recommendation. Reads the global-api Postgres read-only via sanjow-analytics/mb-query.sh. No external deps.",
+  "scripts": {
+    "run": "node run.ts"
+  }
+}

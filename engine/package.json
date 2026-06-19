@@ -1,0 +1,15 @@
+{
+  "name": "@sanjow/wasabi-engine",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Lean, PostHog-esque experimentation engine — in-house variant assignment + event capture on our own Postgres. Speaks PostHog's wire shape so the official PostHog SDKs can point at it.",
+  "scripts": {
+    "verify": "node scripts/verify.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0"
+  }
+}

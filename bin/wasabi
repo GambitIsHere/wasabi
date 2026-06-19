@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# wasabi — unified CLI for the in-house, PostHog-esque experimentation engine.
+#   wasabi experiments                      list experiments
+#   wasabi assign <exp> <distinctId>        show a user's variant + ?theme=
+#   wasabi decide <distinctId>              full /decide payload for a user
+#   wasabi serve [port]                     run the /decide·/capture·/flags HTTP API
+#   wasabi results [exp]                    live P&L verdict per variant (decision-helper)
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  experiments|assign|decide|serve|help|-h)
+    exec node "$ROOT/engine/src/cli.ts" "$cmd" "$@" ;;
+  results)
+    exec node "$ROOT/decision-helper/run.ts" "$@" ;;
+  *)
+    echo "wasabi: unknown command '$cmd'" >&2
+    exec node "$ROOT/engine/src/cli.ts" help ;;
+esac
