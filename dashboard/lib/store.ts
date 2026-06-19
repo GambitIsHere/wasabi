@@ -277,14 +277,33 @@ const SEED: ExperimentInput[] = [
       { key: "b", rolloutPercentage: 50, themeSlug: "tu_lov_ie_serenity", isControl: false },
     ],
   },
+  {
+    // AC-AB-002 (GP-54) — biweekly 24.9 vs quarterly 79. Seeded PAUSED below:
+    // verify the config in the UI, then hit Activate to start it.
+    name: "AC — Biweekly 24.9 vs Quarterly 79",
+    key: "ac-billing-24-9",
+    business: "Airport Check-In",
+    goalMetric: "revenue_per_acquired",
+    startDate: "2026-06-19",
+    variants: [
+      { key: "control", rolloutPercentage: 50, themeSlug: "ac_mto_lov", isControl: true },
+      { key: "variant_24_9", rolloutPercentage: 50, themeSlug: "ac_mto_lov_24_9", isControl: false },
+    ],
+  },
 ];
 
-/** Seed the two example experiments iff the table is empty. Idempotent + cheap. */
+/** Keys that ship seeded but PAUSED — verify config, then Activate from the UI. */
+const SEED_PAUSED = new Set<string>(["ac-billing-24-9"]);
+
+/** Seed the example + first-real experiments iff the table is empty. Idempotent. */
 function ensureSeeded(): void {
   if (seedChecked) return;
   seedChecked = true;
   const db = getDb();
   const row = db.prepare("SELECT COUNT(*) AS n FROM experiment").get() as { n: number };
   if (row.n > 0) return;
-  for (const seed of SEED) insertExperiment(seed);
+  for (const seed of SEED) {
+    const key = insertExperiment(seed);
+    if (SEED_PAUSED.has(key)) setActive(key, false);
+  }
 }

@@ -88,6 +88,9 @@ export const THEME_SLUGS = [
   "tu_lov_ie_serenity",
   "tu_lov_ie",
   "tu_default",
+  // Airport Check-In (AC-AB-002 — biweekly 24.9 vs quarterly 79)
+  "ac_mto_lov",
+  "ac_mto_lov_24_9",
 ] as const;
 export type ThemeSlug = (typeof THEME_SLUGS)[number];
 
