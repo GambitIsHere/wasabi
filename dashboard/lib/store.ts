@@ -290,10 +290,44 @@ const SEED: ExperimentInput[] = [
       { key: "variant_24_9", rolloutPercentage: 50, themeSlug: "ac_mto_lov_24_9", isControl: false },
     ],
   },
+  {
+    // AS (Airport Security / fast-track). PROPOSED price test — slugs are real
+    // Theme-table slugs. NOTE: fast-track drives price via a ?product=_1m_NN param,
+    // NOT the theme suffix, so its middleware sets ?product= AND ?theme= (the theme
+    // is the attribution tag). See integration/storefronts/. Verify the test design
+    // + prices with product before activating.
+    name: "AS — Fast-Track £19 vs £14 (1-month)",
+    key: "as-billing-1m",
+    business: "Airport Security",
+    goalMetric: "revenue_per_acquired",
+    startDate: "2026-06-22",
+    variants: [
+      { key: "control", rolloutPercentage: 50, themeSlug: "as_sub_1m_19", isControl: true },
+      { key: "variant_14", rolloutPercentage: 50, themeSlug: "as_sub_lov_1m_14", isControl: false },
+    ],
+  },
+  {
+    // PDF SaaS. PROPOSED price test — real Theme-table slugs (price encoded in the
+    // theme: auth49 = £49, auth19 = £19). Verify the test design with product
+    // before activating.
+    name: "PDF — £49 vs £19 (auth price)",
+    key: "pdf-price-49-19",
+    business: "PDF SaaS",
+    goalMetric: "revenue_per_acquired",
+    startDate: "2026-06-22",
+    variants: [
+      { key: "control", rolloutPercentage: 50, themeSlug: "pdf_auth49", isControl: true },
+      { key: "variant_19", rolloutPercentage: 50, themeSlug: "pdf_auth19", isControl: false },
+    ],
+  },
 ];
 
 /** Keys that ship seeded but PAUSED — verify config, then Activate from the UI. */
-const SEED_PAUSED = new Set<string>(["ac-billing-24-9"]);
+const SEED_PAUSED = new Set<string>([
+  "ac-billing-24-9",
+  "as-billing-1m",
+  "pdf-price-49-19",
+]);
 
 /** Seed the example + first-real experiments iff the table is empty. Idempotent. */
 function ensureSeeded(): void {
