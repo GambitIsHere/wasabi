@@ -33,3 +33,9 @@ modules/ui/app/scripts/config.js
 modules/ui/dist.zip
 *.log.zip
 
+# Secrets — never commit filled-in env files (deploy/.env holds the Metabase key).
+# The .example templates are safe to track.
+.env
+.env.*
+!.env.example
+
