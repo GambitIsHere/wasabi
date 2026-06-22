@@ -11,6 +11,6 @@ import { listExperiments } from "@/lib/store";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export function GET(): NextResponse {
-  return NextResponse.json({ experiments: listExperiments() });
+export async function GET(): Promise<NextResponse> {
+  return NextResponse.json({ experiments: await listExperiments() });
 }

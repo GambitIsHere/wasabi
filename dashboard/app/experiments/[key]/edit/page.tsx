@@ -12,7 +12,7 @@ export default async function EditExperimentPage({
   params: Promise<{ key: string }>;
 }) {
   const { key } = await params;
-  const exp = getExperiment(key);
+  const exp = await getExperiment(key);
   if (!exp) notFound();
 
   // StoredExperiment → ExperimentInput (the form's shape). Key is carried so the

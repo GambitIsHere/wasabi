@@ -7,8 +7,8 @@ import { ExperimentControls } from "@/components/ExperimentControls";
 // immediately (also revalidated by the actions).
 export const dynamic = "force-dynamic";
 
-export default function HomePage() {
-  const experiments = getExperiments();
+export default async function HomePage() {
+  const experiments = await getExperiments();
 
   return (
     <div className="space-y-8">

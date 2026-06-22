@@ -38,7 +38,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const result = handleDecide({
+  const result = await handleDecide({
     distinctId,
     personProperties: body.personProperties,
   });

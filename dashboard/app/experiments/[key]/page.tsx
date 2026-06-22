@@ -16,7 +16,7 @@ export default async function ExperimentDetailPage({
   params: Promise<{ key: string }>;
 }) {
   const { key } = await params;
-  const experiment = getExperiment(key);
+  const experiment = await getExperiment(key);
   if (!experiment) notFound();
 
   const variants = experiment.flag.variants ?? [];

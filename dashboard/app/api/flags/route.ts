@@ -5,6 +5,6 @@ import { handleFlags } from "@/lib/engine/handlers";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export function GET(): NextResponse {
-  return NextResponse.json(handleFlags());
+export async function GET(): Promise<NextResponse> {
+  return NextResponse.json(await handleFlags());
 }

@@ -17,7 +17,7 @@ export async function GET(
   { params }: { params: Promise<{ key: string }> },
 ): Promise<NextResponse> {
   const { key } = await params;
-  const experiment = getExperiment(key);
+  const experiment = await getExperiment(key);
   if (!experiment) {
     return NextResponse.json(
       { available: false, reason: `Unknown experiment "${key}"` },

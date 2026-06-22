@@ -1,9 +1,9 @@
 // ============================================================================
 // Wasabi — DB-backed experiment store (server-only).
 // ----------------------------------------------------------------------------
-// The single source of truth for experiments at runtime. Replaces the old
-// static lib/experiments.ts array with SQLite-backed rows that the management
-// UI can create / edit / activate / pause / delete.
+// The single source of truth for experiments at runtime. Replaces the old static
+// lib/experiments.ts array with Postgres-backed rows the management UI can create
+// / edit / activate / pause / delete.
 //
 // Two consumer shapes:
 //   1. StoredExperiment  — the flat management contract (lib/mgmt.ts), used by
@@ -12,10 +12,11 @@
 //      from StoredExperiment so assignment (/decide, /flags) and results
 //      (metabase.ts, verdict.ts) keep working with zero changes.
 //
-// SERVER-ONLY: imports lib/db.ts (node:sqlite). Never import from a client
-// component — go through a server action or a server component.
+// SERVER-ONLY: imports lib/db.ts (Neon Postgres). Never import from a client
+// component — go through a server action or a server component. All DB access is
+// async (serverless Postgres over HTTP), so every public function is a Promise.
 // ============================================================================
-import { getDb } from "./db";
+import { getSql, createSchema } from "./db";
 import type { FeatureFlag } from "./engine/types";
 import type { RegisteredExperiment } from "./experiments";
 import type {
@@ -83,41 +84,47 @@ function toStored(exp: ExperimentRow, variants: VariantRow[]): StoredExperiment 
 // Reads
 // ---------------------------------------------------------------------------
 
-/** All variants for one experiment key. */
-function variantsFor(key: string): VariantRow[] {
-  return getDb()
-    .prepare(
-      "SELECT * FROM variant WHERE experiment_key = ? ORDER BY position ASC, key ASC",
-    )
-    .all(key) as unknown as VariantRow[];
-}
-
-/** All experiments in creation order (seed order preserved). */
-export function listExperiments(): StoredExperiment[] {
-  ensureSeeded();
-  const db = getDb();
-  const exps = db
-    .prepare("SELECT * FROM experiment ORDER BY created_at ASC, key ASC")
-    .all() as unknown as ExperimentRow[];
-  return exps.map((e) => toStored(e, variantsFor(e.key)));
+/**
+ * All experiments in creation order (seed order preserved). Two round-trips
+ * (experiments + all variants) grouped in memory — avoids an N+1 on the /decide
+ * hot path.
+ */
+export async function listExperiments(): Promise<StoredExperiment[]> {
+  await ensureReady();
+  const sql = getSql();
+  const [expsRaw, varsRaw] = await Promise.all([
+    sql`SELECT * FROM experiment ORDER BY created_at ASC, key ASC`,
+    sql`SELECT * FROM variant`,
+  ]);
+  const exps = expsRaw as unknown as ExperimentRow[];
+  const byExp = new Map<string, VariantRow[]>();
+  for (const v of varsRaw as unknown as VariantRow[]) {
+    const arr = byExp.get(v.experiment_key);
+    if (arr) arr.push(v);
+    else byExp.set(v.experiment_key, [v]);
+  }
+  return exps.map((e) => toStored(e, byExp.get(e.key) ?? []));
 }
 
 /** One experiment by key, or undefined. */
-export function getExperiment(key: string): StoredExperiment | undefined {
-  ensureSeeded();
-  const exp = getDb()
-    .prepare("SELECT * FROM experiment WHERE key = ?")
-    .get(key) as unknown as ExperimentRow | undefined;
+export async function getExperiment(
+  key: string,
+): Promise<StoredExperiment | undefined> {
+  await ensureReady();
+  const sql = getSql();
+  const exps = (await sql`SELECT * FROM experiment WHERE key = ${key}`) as unknown as ExperimentRow[];
+  const exp = exps[0];
   if (!exp) return undefined;
-  return toStored(exp, variantsFor(exp.key));
+  const vars = (await sql`SELECT * FROM variant WHERE experiment_key = ${key} ORDER BY position ASC, key ASC`) as unknown as VariantRow[];
+  return toStored(exp, vars);
 }
 
 /** True when an experiment with this key already exists. */
-export function experimentExists(key: string): boolean {
-  const row = getDb()
-    .prepare("SELECT 1 AS one FROM experiment WHERE key = ?")
-    .get(key) as { one: number } | undefined;
-  return row !== undefined;
+export async function experimentExists(key: string): Promise<boolean> {
+  await ensureReady();
+  const sql = getSql();
+  const rows = (await sql`SELECT 1 AS one FROM experiment WHERE key = ${key}`) as unknown as unknown[];
+  return rows.length > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,22 +136,30 @@ export function resolveKey(input: ExperimentInput): string {
   return (input.key && input.key.trim()) || slugify(input.name);
 }
 
-function writeVariants(experimentKey: string, variants: VariantInput[]): void {
-  const db = getDb();
-  const insert = db.prepare(
-    `INSERT INTO variant (experiment_key, key, rollout_percentage, theme_slug, is_control, position)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+/** Variant INSERT queries for a transaction (collected, not awaited individually). */
+function variantInserts(
+  sql: ReturnType<typeof getSql>,
+  experimentKey: string,
+  variants: VariantInput[],
+) {
+  return variants.map(
+    (v, i) =>
+      sql`INSERT INTO variant (experiment_key, key, rollout_percentage, theme_slug, is_control, position)
+          VALUES (${experimentKey}, ${v.key}, ${v.rolloutPercentage}, ${v.themeSlug}, ${v.isControl ? 1 : 0}, ${i})`,
   );
-  variants.forEach((v, i) => {
-    insert.run(
-      experimentKey,
-      v.key,
-      v.rolloutPercentage,
-      v.themeSlug,
-      v.isControl ? 1 : 0,
-      i,
-    );
-  });
+}
+
+/** Insert experiment + variants atomically. No readiness guard (used by seeding). */
+async function insertRaw(input: ExperimentInput): Promise<string> {
+  const sql = getSql();
+  const key = resolveKey(input);
+  const createdAt = new Date().toISOString();
+  await sql.transaction([
+    sql`INSERT INTO experiment (key, name, business, active, goal_metric, start_date, created_at)
+        VALUES (${key}, ${input.name.trim()}, ${input.business}, 1, ${input.goalMetric}, ${input.startDate}, ${createdAt})`,
+    ...variantInserts(sql, key, input.variants),
+  ]);
+  return key;
 }
 
 /**
@@ -152,24 +167,9 @@ function writeVariants(experimentKey: string, variants: VariantInput[]): void {
  * has already passed validateInput() and the key is unique (the action checks).
  * Returns the persisted key.
  */
-export function insertExperiment(input: ExperimentInput): string {
-  const db = getDb();
-  const key = resolveKey(input);
-  const createdAt = new Date().toISOString();
-
-  db.exec("BEGIN");
-  try {
-    db.prepare(
-      `INSERT INTO experiment (key, name, business, active, goal_metric, start_date, created_at)
-       VALUES (?, ?, ?, 1, ?, ?, ?)`,
-    ).run(key, input.name.trim(), input.business, input.goalMetric, input.startDate, createdAt);
-    writeVariants(key, input.variants);
-    db.exec("COMMIT");
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
-  }
-  return key;
+export async function insertExperiment(input: ExperimentInput): Promise<string> {
+  await ensureReady();
+  return insertRaw(input);
 }
 
 /**
@@ -177,36 +177,41 @@ export function insertExperiment(input: ExperimentInput): string {
  * lookup target and input.key (if present) is ignored for identity. Variants are
  * replaced wholesale. Preserves the original created_at.
  */
-export function updateExperiment(key: string, input: ExperimentInput): void {
-  const db = getDb();
-  db.exec("BEGIN");
-  try {
-    db.prepare(
-      `UPDATE experiment
-         SET name = ?, business = ?, goal_metric = ?, start_date = ?
-       WHERE key = ?`,
-    ).run(input.name.trim(), input.business, input.goalMetric, input.startDate, key);
-    db.prepare("DELETE FROM variant WHERE experiment_key = ?").run(key);
-    writeVariants(key, input.variants);
-    db.exec("COMMIT");
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
-  }
+export async function updateExperiment(
+  key: string,
+  input: ExperimentInput,
+): Promise<void> {
+  await ensureReady();
+  const sql = getSql();
+  await sql.transaction([
+    sql`UPDATE experiment
+          SET name = ${input.name.trim()}, business = ${input.business},
+              goal_metric = ${input.goalMetric}, start_date = ${input.startDate}
+        WHERE key = ${key}`,
+    sql`DELETE FROM variant WHERE experiment_key = ${key}`,
+    ...variantInserts(sql, key, input.variants),
+  ]);
+}
+
+/** Flip active on/off. Returns true when a row was affected. No readiness guard. */
+async function setActiveRaw(key: string, active: boolean): Promise<boolean> {
+  const sql = getSql();
+  const rows = (await sql`UPDATE experiment SET active = ${active ? 1 : 0} WHERE key = ${key} RETURNING key`) as unknown as unknown[];
+  return rows.length > 0;
 }
 
 /** Flip active on/off. Returns true when a row was affected. */
-export function setActive(key: string, active: boolean): boolean {
-  const res = getDb()
-    .prepare("UPDATE experiment SET active = ? WHERE key = ?")
-    .run(active ? 1 : 0, key);
-  return res.changes > 0;
+export async function setActive(key: string, active: boolean): Promise<boolean> {
+  await ensureReady();
+  return setActiveRaw(key, active);
 }
 
 /** Delete an experiment (variants cascade). Returns true when a row was removed. */
-export function deleteExperiment(key: string): boolean {
-  const res = getDb().prepare("DELETE FROM experiment WHERE key = ?").run(key);
-  return res.changes > 0;
+export async function deleteExperiment(key: string): Promise<boolean> {
+  await ensureReady();
+  const sql = getSql();
+  const rows = (await sql`DELETE FROM experiment WHERE key = ${key} RETURNING key`) as unknown as unknown[];
+  return rows.length > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -248,11 +253,11 @@ export function toRegistered(exp: StoredExperiment): RegisteredExperiment {
 }
 
 // ---------------------------------------------------------------------------
-// Seed-once — two real, editable examples so the app is never blank on a fresh
-// DB. Runs inside a guard so it fires exactly once per empty database.
+// Seed-once — real, editable examples so the app is never blank on a fresh DB.
+// Seeds only when the table is empty (so user-deleted seeds don't reappear).
 // ---------------------------------------------------------------------------
 
-let seedChecked = false;
+let readyPromise: Promise<void> | null = null;
 
 const SEED: ExperimentInput[] = [
   {
@@ -329,15 +334,31 @@ const SEED_PAUSED = new Set<string>([
   "pdf-price-49-19",
 ]);
 
-/** Seed the example + first-real experiments iff the table is empty. Idempotent. */
-function ensureSeeded(): void {
-  if (seedChecked) return;
-  seedChecked = true;
-  const db = getDb();
-  const row = db.prepare("SELECT COUNT(*) AS n FROM experiment").get() as { n: number };
-  if (row.n > 0) return;
-  for (const seed of SEED) {
-    const key = insertExperiment(seed);
-    if (SEED_PAUSED.has(key)) setActive(key, false);
+/**
+ * One-time-per-process readiness: ensure the schema exists, then seed the examples
+ * IFF the table is empty (so user-deleted seeds don't reappear). Memoised so
+ * concurrent requests share one init; the on-empty seed tolerates a cold-start
+ * race (another instance seeding the same keys) by catching the conflict.
+ */
+function ensureReady(): Promise<void> {
+  return (readyPromise ??= initOnce());
+}
+
+async function initOnce(): Promise<void> {
+  await createSchema();
+  const sql = getSql();
+  const rows = (await sql`SELECT COUNT(*)::int AS n FROM experiment`) as unknown as { n: number }[];
+  if ((rows[0]?.n ?? 0) > 0) return;
+  try {
+    for (const seed of SEED) {
+      const key = await insertRaw(seed);
+      if (SEED_PAUSED.has(key)) await setActiveRaw(key, false);
+    }
+  } catch (err) {
+    // Likely a concurrent instance seeded the same keys first — that's fine.
+    console.warn(
+      "[wasabi] seed skipped/partial:",
+      err instanceof Error ? err.message : err,
+    );
   }
 }

@@ -38,7 +38,7 @@ export async function createExperiment(input: ExperimentInput): Promise<ActionRe
   if (error) return { ok: false, error };
 
   const key = resolveKey(input);
-  if (experimentExists(key)) {
+  if (await experimentExists(key)) {
     return {
       ok: false,
       error: `An experiment with key "${key}" already exists. Pick a different name or key.`,
@@ -46,7 +46,7 @@ export async function createExperiment(input: ExperimentInput): Promise<ActionRe
   }
 
   try {
-    const created = insertExperiment(input);
+    const created = await insertExperiment(input);
     revalidateFor(created);
     return { ok: true, key: created };
   } catch (err) {
@@ -65,7 +65,7 @@ export async function updateExperiment(
   key: string,
   input: ExperimentInput,
 ): Promise<ActionResult> {
-  if (!experimentExists(key)) {
+  if (!(await experimentExists(key))) {
     return { ok: false, error: `No experiment with key "${key}".` };
   }
   // Validate with the locked key so slug-from-name can't silently change identity.
@@ -73,7 +73,7 @@ export async function updateExperiment(
   if (error) return { ok: false, error };
 
   try {
-    storeUpdate(key, { ...input, key });
+    await storeUpdate(key, { ...input, key });
     revalidateFor(key);
     return { ok: true, key };
   } catch (err) {
@@ -89,7 +89,7 @@ export async function setExperimentActive(
   key: string,
   active: boolean,
 ): Promise<ActionResult> {
-  const changed = storeSetActive(key, active);
+  const changed = await storeSetActive(key, active);
   if (!changed) return { ok: false, error: `No experiment with key "${key}".` };
   revalidateFor(key);
   return { ok: true, key };
@@ -97,7 +97,7 @@ export async function setExperimentActive(
 
 /** Delete an experiment (variants cascade). */
 export async function deleteExperiment(key: string): Promise<ActionResult> {
-  const removed = storeDelete(key);
+  const removed = await storeDelete(key);
   if (!removed) return { ok: false, error: `No experiment with key "${key}".` };
   revalidatePath("/");
   revalidatePath(`/experiments/${key}`);

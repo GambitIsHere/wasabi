@@ -1,65 +1,56 @@
 // ============================================================================
-// Wasabi — SQLite connection (server-only).
+// Wasabi — Postgres connection (server-only), via Neon's serverless driver.
 // ----------------------------------------------------------------------------
-// A single, long-lived node:sqlite connection. Because Wasabi runs as a
-// long-running self-hosted Node server (next dev / next start), a file-backed
-// store persists across requests and restarts — exactly what we want.
+// Wasabi now runs on serverless (Vercel), where there is NO persistent local
+// filesystem — so the old on-disk node:sqlite store couldn't persist. We use Neon
+// Postgres over HTTP instead: each query is a stateless HTTPS request (no socket
+// to pool), which is exactly right for serverless functions.
 //
-// SERVER-ONLY: this module imports node:sqlite and node:fs. It must NEVER be
-// pulled into a client bundle. We import it only from server code (lib/store.ts,
-// invoked by server components and "use server" actions) and hard-guard against
-// a browser environment below.
+// SERVER-ONLY: never import from a client component (guarded below).
 //
-// ZERO npm deps: node:sqlite is built into Node (>= 22.5 experimental, stable in
-// 24/25). If Turbopack ever refuses to bundle it, lib/store.ts is the only
-// consumer and can swap to a JSON store without touching the rest of the app.
+// Connection: DATABASE_URL (Vercel's Neon integration injects this; falls back to
+// POSTGRES_URL). lib/store.ts is the only consumer.
 // ============================================================================
-import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { neon } from "@neondatabase/serverless";
 
-// Defence-in-depth: if this somehow reaches a browser bundle, fail loudly rather
-// than ship node:sqlite to the client.
+// Defence-in-depth: never ship the DB layer to the browser.
 if (typeof window !== "undefined") {
   throw new Error("lib/db.ts is server-only and must not run in the browser.");
 }
 
-/** Resolve the DB path: WASABI_DB env override, else <cwd>/.data/wasabi.db. */
-function resolveDbPath(): string {
-  const fromEnv = process.env.WASABI_DB;
-  if (fromEnv && fromEnv.trim().length > 0) return fromEnv;
-  return join(process.cwd(), ".data", "wasabi.db");
-}
-
-// Singleton — survive Next's dev hot-reload by stashing the handle on globalThis
-// so we don't leak a new connection (and re-run schema) on every module reload.
-const globalForDb = globalThis as unknown as { __wasabiDb?: DatabaseSync };
-
-function openDatabase(): DatabaseSync {
-  const dbPath = resolveDbPath();
-  // Ensure the parent dir exists (.data/ is gitignored).
-  mkdirSync(dirname(dbPath), { recursive: true });
-
-  const db = new DatabaseSync(dbPath);
-  // Pragmas tuned for a single long-running server: WAL for concurrent reads,
-  // foreign keys on so variant rows cascade with their experiment.
-  db.exec("PRAGMA journal_mode = WAL;");
-  db.exec("PRAGMA foreign_keys = ON;");
-  initSchema(db);
-  return db;
-}
-
-/** The shared connection. Lazily opened on first use, reused thereafter. */
-export function getDb(): DatabaseSync {
-  if (!globalForDb.__wasabiDb) {
-    globalForDb.__wasabiDb = openDatabase();
+function connectionString(): string {
+  const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
+  if (!url || url.trim().length === 0) {
+    throw new Error(
+      "DATABASE_URL (or POSTGRES_URL) is not set. Add a Postgres database in " +
+        "Vercel (Storage tab) — it injects the env var — or set it locally to run the app.",
+    );
   }
-  return globalForDb.__wasabiDb;
+  return url;
 }
 
-/** Create the schema if it doesn't exist. Idempotent. */
-function initSchema(db: DatabaseSync): void {
-  db.exec(`
+// Memoised query client. neon() is cheap (no persistent connection), but we parse
+// the connection string once. Lazy, so a missing env at import/build time doesn't
+// crash the build — it surfaces a clear error on first query instead.
+let client: ReturnType<typeof neon> | null = null;
+
+/** The Neon SQL tagged-template client. Use as: `const sql = getSql(); await sql\`…\`;` */
+export function getSql(): ReturnType<typeof neon> {
+  return (client ??= neon(connectionString()));
+}
+
+// Schema creation is idempotent (CREATE TABLE IF NOT EXISTS) and memoised per
+// process so concurrent cold requests share a single round-trip.
+let schemaPromise: Promise<void> | null = null;
+
+/** Create the schema if it doesn't exist. Idempotent + memoised. */
+export function createSchema(): Promise<void> {
+  return (schemaPromise ??= doCreateSchema());
+}
+
+async function doCreateSchema(): Promise<void> {
+  const sql = getSql();
+  await sql`
     CREATE TABLE IF NOT EXISTS experiment (
       key         TEXT PRIMARY KEY,
       name        TEXT NOT NULL,
@@ -68,18 +59,17 @@ function initSchema(db: DatabaseSync): void {
       goal_metric TEXT NOT NULL,
       start_date  TEXT NOT NULL,
       created_at  TEXT NOT NULL
-    );
-  `);
-  db.exec(`
+    )
+  `;
+  await sql`
     CREATE TABLE IF NOT EXISTS variant (
-      experiment_key     TEXT NOT NULL,
+      experiment_key     TEXT NOT NULL REFERENCES experiment(key) ON DELETE CASCADE,
       key                TEXT NOT NULL,
       rollout_percentage INTEGER NOT NULL,
       theme_slug         TEXT NOT NULL,
       is_control         INTEGER NOT NULL DEFAULT 0,
       position           INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (experiment_key, key),
-      FOREIGN KEY (experiment_key) REFERENCES experiment(key) ON DELETE CASCADE
-    );
-  `);
+      PRIMARY KEY (experiment_key, key)
+    )
+  `;
 }
