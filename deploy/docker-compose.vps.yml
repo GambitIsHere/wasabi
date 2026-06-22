@@ -1,0 +1,38 @@
+# Wasabi — VPS variant for the n8n box.
+# Unlike docker-compose.yml, this does NOT run its own Caddy — the n8n stack's
+# Caddy already owns 80/443. Wasabi joins n8n's Docker network so that Caddy can
+# reverse_proxy to it by name (wasabi:3000). See INTEGRATE-N8N-VPS.md.
+#
+#   cd /opt/wasabi/deploy
+#   docker compose -f docker-compose.vps.yml up -d --build
+services:
+  wasabi:
+    build:
+      context: ../dashboard
+      dockerfile: Dockerfile
+    container_name: wasabi
+    restart: unless-stopped
+    environment:
+      WASABI_DB: /app/.data/wasabi.db
+      METABASE_URL: ${METABASE_URL:-}
+      METABASE_API_KEY: ${METABASE_API_KEY:-}   # read-only key, host-only, for the live verdict
+      TZ: ${GENERIC_TIMEZONE:-Europe/Lisbon}
+    volumes:
+      - wasabi-data:/app/.data                  # the experiment store — back it up
+    networks:
+      - n8n
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  wasabi-data: { driver: local }
+
+networks:
+  # The network n8n-stack's Caddy already runs on. Compose names it
+  # "<project>_internal" → usually "n8n-stack_internal". CONFIRM on the box:
+  #   docker network ls | grep internal
+  # and set the exact name below if it differs.
+  n8n:
+    external: true
+    name: n8n-stack_internal
