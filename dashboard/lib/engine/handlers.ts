@@ -3,10 +3,12 @@
 // into these typed inputs and serialise the typed outputs back.
 //
 // Reads the experiment registry from lib/experiments.ts (live flag split + theme
-// maps). That registry is now async (Postgres-backed), so handleDecide/handleFlags
-// are async too; handleCapture stays sync (in-memory).
+// maps). That registry is Postgres-backed (async). The ASSIGNMENT hot path
+// (/decide, /flags) runs on every storefront request, so it reads through a
+// short per-instance cache to avoid a Neon round-trip per call.
 import { getFeatureFlag } from "./assignment";
-import { getExperiments, getExperimentFlags } from "../experiments";
+import { getExperiments } from "../experiments";
+import type { RegisteredExperiment } from "../experiments";
 import type {
   CaptureRequest,
   CaptureResponse,
@@ -15,22 +17,38 @@ import type {
   FlagsResponse,
 } from "./wire";
 
+// ---------------------------------------------------------------------------
+// Assignment registry cache (hot path only).
+// ---------------------------------------------------------------------------
+// /decide + /flags are public and called on every storefront request, so we
+// cache the registry per serverless instance for a few seconds — assignment
+// tolerates slight staleness, and this turns most requests into zero DB
+// round-trips. Admin pages/actions read the store UNCACHED (getExperiments /
+// listExperiments), so create/edit/activate still reflect immediately.
+const REGISTRY_TTL_MS = 10_000;
+let registryCache: { exps: RegisteredExperiment[]; expiry: number } | null = null;
+
+async function assignmentRegistry(): Promise<RegisteredExperiment[]> {
+  const now = Date.now();
+  if (registryCache && registryCache.expiry > now) return registryCache.exps;
+  const exps = await getExperiments();
+  registryCache = { exps, expiry: now + REGISTRY_TTL_MS };
+  return exps;
+}
+
 /**
  * POST /decide — resolve every registered experiment for one user.
  *
  * `featureFlags` always carries the raw value (false / true / variant key) for
  * every flag, so callers can see "not in this test" explicitly. `themes` is the
- * Sanjow convenience layer: experiment key → storefront `?theme=` slug, added only
- * when the user is actually in a variant that has a slug.
- *
- * Loads the full registry once (one store round-trip) and reads each experiment's
- * themeMap from the loaded object — no per-flag lookup.
+ * Sanjow convenience layer: experiment key → storefront `?theme=` slug, added
+ * only when the user is actually in a variant that has a slug.
  */
 export async function handleDecide(req: DecideRequest): Promise<DecideResponse> {
   const featureFlags: DecideResponse["featureFlags"] = {};
   const themes: DecideResponse["themes"] = {};
 
-  for (const exp of await getExperiments()) {
+  for (const exp of await assignmentRegistry()) {
     const value = getFeatureFlag(exp.flag, req.distinctId);
     featureFlags[exp.flag.key] = value;
 
@@ -44,45 +62,37 @@ export async function handleDecide(req: DecideRequest): Promise<DecideResponse> 
   return { featureFlags, themes };
 }
 
-// In-memory event log — fine for the spike. Resets per server process. (On
-// serverless this is per-instance and ephemeral; capture is fire-and-forget.)
-const capturedEvents: CaptureRequest[] = [];
-
 /**
- * POST /capture — record one event for a user. Stamps `timestamp` server-side when
- * omitted, logs it, and returns PostHog's `{ status: 1 }` ack. Never rejects a
- * well-formed event — capture must be cheap and lossless.
+ * POST /capture — accepts a PostHog-shaped event and acks `{ status: 1 }`.
+ *
+ * IMPORTANT: this is a PUBLIC, UNAUTHENTICATED endpoint and currently does NOT
+ * persist anywhere. Experiment RESULTS are computed from the global-api payment
+ * DB (via Metabase), keyed by theme slug — NOT from these events. We keep the
+ * endpoint for PostHog wire-compatibility and log for debugging, but we don't
+ * buffer in memory (on serverless that's per-instance and lost — it would only
+ * leak memory). Before relying on captured events, wire this to a real sink
+ * (a Neon table or PostHog) AND add rate-limiting, since it's unauthenticated.
  */
 export function handleCapture(req: CaptureRequest): CaptureResponse {
-  const event: CaptureRequest = {
-    ...req,
-    timestamp: req.timestamp ?? new Date().toISOString(),
-  };
-  capturedEvents.push(event);
+  const timestamp = req.timestamp ?? new Date().toISOString();
   console.log(
-    `[capture] ${event.timestamp} ${event.distinctId} → ${event.event}`,
-    event.properties ?? {},
+    `[capture] ${timestamp} ${req.distinctId} → ${req.event}`,
+    req.properties ?? {},
   );
   return { status: 1 };
-}
-
-/** All events captured this process lifetime — for the demo/admin to inspect. */
-export function getCapturedEvents(): readonly CaptureRequest[] {
-  return capturedEvents;
 }
 
 /**
  * GET /flags — list active experiments for debug/admin. Surfaces variant *keys*
  * only (not percentages) — a quick "what's running" view, not the assignment
- * payload.
+ * payload. Served from the same hot-path cache as /decide.
  */
 export async function handleFlags(): Promise<FlagsResponse> {
-  const flags = await getExperimentFlags();
   return {
-    flags: flags.map((flag) => ({
-      key: flag.key,
-      active: flag.active,
-      variants: (flag.variants ?? []).map((v) => v.key),
+    flags: (await assignmentRegistry()).map((exp) => ({
+      key: exp.flag.key,
+      active: exp.flag.active,
+      variants: (exp.flag.variants ?? []).map((v) => v.key),
     })),
   };
 }

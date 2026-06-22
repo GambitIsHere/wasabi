@@ -349,16 +349,19 @@ async function initOnce(): Promise<void> {
   const sql = getSql();
   const rows = (await sql`SELECT COUNT(*)::int AS n FROM experiment`) as unknown as { n: number }[];
   if ((rows[0]?.n ?? 0) > 0) return;
-  try {
-    for (const seed of SEED) {
+  // Per-seed isolation: a cold-start race (another instance inserting the same
+  // key) fails only that seed, not the rest — so the table still ends up complete
+  // rather than permanently partial.
+  for (const seed of SEED) {
+    try {
       const key = await insertRaw(seed);
       if (SEED_PAUSED.has(key)) await setActiveRaw(key, false);
+    } catch (err) {
+      console.warn(
+        "[wasabi] seed skipped:",
+        seed.key,
+        err instanceof Error ? err.message : err,
+      );
     }
-  } catch (err) {
-    // Likely a concurrent instance seeded the same keys first — that's fine.
-    console.warn(
-      "[wasabi] seed skipped/partial:",
-      err instanceof Error ? err.message : err,
-    );
   }
 }
