@@ -77,22 +77,43 @@ export const GOAL_METRICS = [
 export type GoalMetric = (typeof GOAL_METRICS)[number];
 
 /**
- * Valid storefront `?theme=` slugs. The assignment contract routes a variant to
- * one of these, and the results query reads P&L by slug. Kept as the real slugs
- * the storefronts already serve (the seed experiments use these).
+ * SUGGESTED storefront `?theme=` slugs — surfaced as autocomplete in the form.
+ * This is NOT an exhaustive whitelist: global-api's `Theme` table holds 600+ slugs
+ * across all businesses (tu_*, ac_*, as_*, pdf_*, …) and grows whenever a storefront
+ * adds a locale or form. Validation is therefore format-based (see THEME_SLUG_RE),
+ * not membership here — Wasabi routes an opaque slug; the storefront + the Theme
+ * registry stay authoritative. Add common picks here purely to speed up the form.
  */
 export const THEME_SLUGS = [
+  // Top Up
   "tu_lov_uk",
   "tu_lov_uk_19",
   "tu_lov_uk_39",
   "tu_lov_ie_serenity",
   "tu_lov_ie",
   "tu_default",
-  // Airport Check-In (AC-AB-002 — biweekly 24.9 vs quarterly 79)
+  // Airport Check-In
   "ac_mto_lov",
   "ac_mto_lov_24_9",
+  // Airport Security (fast-track)
+  "as_sub_1m_19",
+  "as_sub_lov_1m_14",
+  // PDF SaaS
+  "pdf_3m",
+  "pdf_6m",
+  "pdf_auth19",
+  "pdf_auth49",
 ] as const;
 export type ThemeSlug = (typeof THEME_SLUGS)[number];
+
+/**
+ * A slug is valid if it matches the SHAPE of a Theme.slug (Postgres VarChar(50)):
+ * lower-case, starts with a letter, then letters / digits / "_" / "-", ≤ 50 chars.
+ * Shape-not-membership means any business's slugs — including ones created after
+ * this deploy — pass without a code change. A wrong slug fails safe: its results
+ * arm is simply empty and the storefront serves its default theme.
+ */
+export const THEME_SLUG_RE = /^[a-z][a-z0-9_-]{1,49}$/;
 
 // ---------------------------------------------------------------------------
 // Slug helpers
@@ -171,8 +192,8 @@ export function validateInput(input: ExperimentInput): string | null {
     if (!Number.isInteger(v.rolloutPercentage) || v.rolloutPercentage < 0 || v.rolloutPercentage > 100) {
       return `Variant "${vKey}" split must be a whole number between 0 and 100.`;
     }
-    if (!THEME_SLUGS.includes(v.themeSlug as ThemeSlug)) {
-      return `Variant "${vKey}" theme slug "${v.themeSlug}" is not a known slug.`;
+    if (!THEME_SLUG_RE.test(v.themeSlug ?? "")) {
+      return `Variant "${vKey}" theme slug "${v.themeSlug}" is invalid — lower-case letters, numbers, "_" or "-", max 50 chars (e.g. tu_lov_uk_19, as_sub_1m_19, pdf_auth19).`;
     }
   }
 

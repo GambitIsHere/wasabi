@@ -252,19 +252,22 @@ export function ExperimentForm({ mode, initial }: Props) {
                 </span>
               </div>
 
-              {/* theme slug */}
-              <select
+              {/* theme slug — free text (any global-api Theme slug works across
+                  all businesses); the common ones are suggested via the datalist
+                  below. Validation is format-based (see mgmt.ts THEME_SLUG_RE). */}
+              <input
+                type="text"
+                list="wasabi-theme-slugs"
                 value={d.themeSlug}
                 onChange={(e) => updateRow(i, { themeSlug: e.target.value })}
-                className="rounded-md border border-line-strong bg-bg px-2.5 py-1.5 font-mono text-xs text-accent/90 focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
-                aria-label={`Theme for variant ${d.key}`}
-              >
-                {THEME_SLUGS.map((s) => (
-                  <option key={s} value={s} className="text-fg">
-                    ?theme={s}
-                  </option>
-                ))}
-              </select>
+                placeholder="tu_lov_uk_19"
+                spellCheck={false}
+                autoComplete="off"
+                autoCapitalize="none"
+                autoCorrect="off"
+                className="w-full rounded-md border border-line-strong bg-bg px-2.5 py-1.5 font-mono text-xs text-accent/90 placeholder:text-faint focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
+                aria-label={`Theme slug for variant ${d.key}`}
+              />
 
               {/* remove */}
               <button
@@ -284,6 +287,14 @@ export function ExperimentForm({ mode, initial }: Props) {
             </div>
           ))}
         </div>
+
+        {/* Shared autocomplete for every variant's theme-slug input — suggestions
+            only; any format-valid slug can be typed (all businesses, future slugs). */}
+        <datalist id="wasabi-theme-slugs">
+          {THEME_SLUGS.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
 
         <div className="border-t border-line px-5 py-3">
           <button
