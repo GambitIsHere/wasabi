@@ -42,6 +42,27 @@ export interface VariantRow {
   revenueGbp: number;
   /** revenue_gbp / apps_acquired — the £ verdict per arm. */
   revPerAcquired: number;
+
+  // --- Phase 1a: funnel · net revenue · break-even CAC · currency (all optional
+  //     so older callers + the verdict stats keep working unchanged) ---
+  /** Paid ad clicks attributed to this variant's theme (gAdsConversion). */
+  adClicks?: number;
+  /** Of those clicks, how many converted (gAdsConversion.converted). */
+  adConversions?: number;
+  /** Refunds: SUM(amountGBP) over full_refund + partial_refund. */
+  refundsGbp?: number;
+  /** Chargebacks: SUM(amountGBP) over open_/resolved_chargeback. */
+  chargebacksGbp?: number;
+  /** Net revenue = revenue − refunds − chargebacks (GBP). */
+  netRevenueGbp?: number;
+  /** Break-even CAC = net revenue ÷ apps acquired (GBP) — the most you can pay per acquisition. */
+  breakEvenCacGbp?: number;
+  /** The variant's transacted currency code (GBP/EUR/USD), for display. */
+  currency?: string;
+  /** Cash collected in the native currency: SUM(amount) over paid + rebill. */
+  revenueNative?: number;
+  /** revenueNative ÷ apps acquired. */
+  revPerAcquiredNative?: number;
 }
 
 /** Which way is "good" for a metric — used to colour winners and deltas. */

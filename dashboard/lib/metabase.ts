@@ -50,13 +50,26 @@ tx AS (
     v.theme_slug,
     v.application_id,
     t."type"      AS tx_type,
-    t."amountGBP" AS amount_gbp
+    t."amountGBP" AS amount_gbp,
+    t."amount"    AS amount_native,
+    t."currency"  AS ccy
   FROM variant v
   LEFT JOIN "Transaction" t ON t."applicationId" = v.application_id
+),
+ads AS (
+  SELECT
+    th."slug"                             AS theme_slug,
+    COUNT(*)                              AS ad_clicks,
+    COUNT(*) FILTER (WHERE g."converted") AS ad_conversions
+  FROM "gAdsConversion" g
+  JOIN "Theme" th ON th."themeId" = g."themeId"
+  WHERE th."slug" IN (${slugList})
+    AND g."createdAt" >= TIMESTAMP '${startLiteral}'
+  GROUP BY th."slug"
 )
 SELECT
-  theme_slug,
-  COUNT(DISTINCT application_id)                                          AS apps_acquired,
+  tx.theme_slug,
+  COUNT(DISTINCT tx.application_id)                                       AS apps_acquired,
   COUNT(*) FILTER (WHERE tx_type = 'paid')                               AS first_paid,
   COUNT(*) FILTER (WHERE tx_type = 'failed')                             AS first_failed,
   ROUND(100.0 * COUNT(*) FILTER (WHERE tx_type = 'paid')
@@ -65,12 +78,32 @@ SELECT
   COUNT(*) FILTER (WHERE tx_type = 'rebill_failed')                      AS rebill_fail,
   ROUND(100.0 * COUNT(*) FILTER (WHERE tx_type = 'rebill')
     / NULLIF(COUNT(*) FILTER (WHERE tx_type IN ('rebill','rebill_failed')), 0), 1) AS rebill_rate,
-  ROUND(SUM(amount_gbp) FILTER (WHERE tx_type IN ('paid','rebill')), 2)  AS revenue_gbp,
-  ROUND(SUM(amount_gbp) FILTER (WHERE tx_type IN ('paid','rebill'))
-    / NULLIF(COUNT(DISTINCT application_id), 0), 2)                      AS rev_per_acquired
+  ROUND(COALESCE(SUM(amount_gbp) FILTER (WHERE tx_type IN ('paid','rebill')), 0), 2)               AS revenue_gbp,
+  ROUND(COALESCE(SUM(amount_gbp) FILTER (WHERE tx_type IN ('full_refund','partial_refund')), 0), 2) AS refunds_gbp,
+  ROUND(COALESCE(SUM(amount_gbp) FILTER (WHERE tx_type IN ('open_chargeback','resolved_chargeback')), 0), 2) AS chargebacks_gbp,
+  ROUND(
+      COALESCE(SUM(amount_gbp) FILTER (WHERE tx_type IN ('paid','rebill')), 0)
+    - COALESCE(SUM(amount_gbp) FILTER (WHERE tx_type IN ('full_refund','partial_refund')), 0)
+    - COALESCE(SUM(amount_gbp) FILTER (WHERE tx_type IN ('open_chargeback','resolved_chargeback')), 0)
+  , 2)                                                                   AS net_revenue_gbp,
+  ROUND(COALESCE(SUM(amount_gbp) FILTER (WHERE tx_type IN ('paid','rebill')), 0)
+    / NULLIF(COUNT(DISTINCT tx.application_id), 0), 2)                   AS rev_per_acquired,
+  ROUND(
+    ( COALESCE(SUM(amount_gbp) FILTER (WHERE tx_type IN ('paid','rebill')), 0)
+    - COALESCE(SUM(amount_gbp) FILTER (WHERE tx_type IN ('full_refund','partial_refund')), 0)
+    - COALESCE(SUM(amount_gbp) FILTER (WHERE tx_type IN ('open_chargeback','resolved_chargeback')), 0) )
+    / NULLIF(COUNT(DISTINCT tx.application_id), 0)
+  , 2)                                                                   AS break_even_cac_gbp,
+  ROUND(COALESCE(SUM(amount_native) FILTER (WHERE tx_type IN ('paid','rebill')), 0), 2)            AS revenue_native,
+  ROUND(COALESCE(SUM(amount_native) FILTER (WHERE tx_type IN ('paid','rebill')), 0)
+    / NULLIF(COUNT(DISTINCT tx.application_id), 0), 2)                   AS rev_per_acquired_native,
+  MODE() WITHIN GROUP (ORDER BY ccy)                                     AS currency,
+  COALESCE(MAX(ads.ad_clicks), 0)                                        AS ad_clicks,
+  COALESCE(MAX(ads.ad_conversions), 0)                                   AS ad_conversions
 FROM tx
-GROUP BY theme_slug
-ORDER BY theme_slug;`.trim();
+LEFT JOIN ads ON ads.theme_slug = tx.theme_slug
+GROUP BY tx.theme_slug
+ORDER BY tx.theme_slug;`.trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -192,6 +225,15 @@ function toVariantRows(
       rebillRate: num(r["rebill_rate"]),
       revenueGbp: num(r["revenue_gbp"]),
       revPerAcquired: num(r["rev_per_acquired"]),
+      adClicks: num(r["ad_clicks"]),
+      adConversions: num(r["ad_conversions"]),
+      refundsGbp: num(r["refunds_gbp"]),
+      chargebacksGbp: num(r["chargebacks_gbp"]),
+      netRevenueGbp: num(r["net_revenue_gbp"]),
+      breakEvenCacGbp: num(r["break_even_cac_gbp"]),
+      revenueNative: num(r["revenue_native"]),
+      revPerAcquiredNative: num(r["rev_per_acquired_native"]),
+      currency: r["currency"] != null ? String(r["currency"]) : undefined,
     });
   }
   return rows;
