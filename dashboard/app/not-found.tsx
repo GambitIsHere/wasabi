@@ -6,13 +6,15 @@ export default function NotFound() {
       <div className="mb-3 text-3xl" aria-hidden="true">
         🌶
       </div>
-      <h1 className="text-lg font-semibold text-fg">Experiment not found</h1>
+      <h1 className="font-display text-lg font-semibold text-fg">
+        Experiment not found
+      </h1>
       <p className="mt-1.5 max-w-sm text-sm text-muted">
         That experiment key isn&apos;t in the Wasabi registry.
       </p>
       <Link
         href="/"
-        className="mt-5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition-opacity hover:opacity-90"
+        className="mt-5 rounded-lg bg-accent px-4 py-2 font-display text-sm font-semibold text-bg transition-opacity hover:opacity-90"
       >
         Back to experiments
       </Link>

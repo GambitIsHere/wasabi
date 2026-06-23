@@ -7,25 +7,38 @@ import { ExperimentControls } from "@/components/ExperimentControls";
 // immediately (also revalidated by the actions).
 export const dynamic = "force-dynamic";
 
+// Per-variant bar colours from the editorial palette.
+const VARIANT_BARS = [
+  "bg-accent",
+  "bg-info",
+  "bg-violet",
+  "bg-pink",
+  "bg-amber",
+  "bg-sky",
+];
+
 export default async function HomePage() {
   const experiments = await getExperiments();
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       {/* Intro + New */}
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <h1 className="text-2xl font-semibold tracking-tight text-fg">
-            Experiments
-          </h1>
+      <section className="relative">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="space-y-3">
+            <p className="eyebrow">Live experiments</p>
+            <h1 className="font-display text-4xl font-bold tracking-tight text-fg sm:text-5xl">
+              Every test, one <span className="serif-accent">verdict</span>.
+            </h1>
+          </div>
           <Link
             href="/experiments/new"
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition-opacity hover:opacity-90"
+            className="rounded-lg bg-accent px-4 py-2 font-display text-sm font-semibold text-bg transition-all duration-200 ease-expo hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-8px_rgba(0,229,160,0.5)]"
           >
             + New experiment
           </Link>
         </div>
-        <p className="max-w-3xl text-sm leading-relaxed text-muted">
+        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-muted">
           <span className="font-medium text-fg">Wasabi</span> is Sanjow&apos;s
           in-house experimentation engine — PostHog-compatible. It assigns each
           visitor a sticky variant with a storage-free SHA-1 hash (the same user
@@ -34,6 +47,10 @@ export default async function HomePage() {
           which variant actually made more money per acquired customer, and
           whether the difference is statistically real.
         </p>
+        <div
+          className="mt-6 h-0.5 w-28 rounded-full bg-accent"
+          aria-hidden="true"
+        />
       </section>
 
       {/* Experiment cards */}
@@ -44,19 +61,27 @@ export default async function HomePage() {
           aria-label="Registered experiments"
           className="grid gap-4 sm:grid-cols-2"
         >
-          {experiments.map((exp) => {
+          {experiments.map((exp, i) => {
             const variants = exp.flag.variants ?? [];
             return (
               <article
                 key={exp.flag.key}
-                className="flex flex-col rounded-xl border border-line bg-surface p-5 transition-colors hover:border-line-strong"
+                className="group relative flex flex-col overflow-hidden rounded-xl border border-line bg-bg-deep p-5 transition-all duration-300 ease-expo hover:-translate-y-0.5 hover:border-accent hover:bg-surface"
               >
-                <div className="flex items-start justify-between gap-3">
+                {/* Oversized faded index — editorial signature. */}
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute -right-1 top-1 font-display text-6xl font-bold tabular-nums text-accent/[0.07]"
+                >
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+
+                <div className="relative flex items-start justify-between gap-3">
                   <Link
                     href={`/experiments/${exp.flag.key}`}
-                    className="group min-w-0 focus:outline-none"
+                    className="min-w-0 focus:outline-none"
                   >
-                    <h2 className="truncate text-base font-semibold text-fg group-hover:text-accent">
+                    <h2 className="truncate font-display text-base font-semibold text-fg transition-colors group-hover:text-accent">
                       {exp.name}
                     </h2>
                     <code className="mt-0.5 block truncate font-mono text-xs text-faint">
@@ -66,21 +91,23 @@ export default async function HomePage() {
                   <StatusPill active={exp.flag.active} />
                 </div>
 
-                <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-muted">
+                <p className="relative mt-3 line-clamp-2 text-sm leading-relaxed text-muted">
                   {exp.description}
                 </p>
 
                 {/* Traffic split */}
-                <div className="mt-4">
-                  <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium uppercase tracking-wide text-faint">
+                <div className="relative mt-4">
+                  <div className="mb-1.5 flex items-center justify-between font-mono text-[10px] font-medium uppercase tracking-wider text-faint">
                     <span>Traffic split</span>
-                    <span>{exp.flag.rolloutPercentage}% rollout</span>
+                    <span className="text-muted">
+                      {exp.flag.rolloutPercentage}% rollout
+                    </span>
                   </div>
                   <div className="flex h-2 w-full overflow-hidden rounded-full bg-bg">
-                    {variants.map((v, i) => (
+                    {variants.map((v, vi) => (
                       <div
                         key={v.key}
-                        className={i % 2 === 0 ? "bg-accent-soft" : "bg-info/70"}
+                        className={VARIANT_BARS[vi % VARIANT_BARS.length]}
                         style={{ width: `${v.rolloutPercentage}%` }}
                         title={`${v.key}: ${v.rolloutPercentage}%`}
                       />
@@ -89,7 +116,7 @@ export default async function HomePage() {
                 </div>
 
                 {/* Variants → theme */}
-                <ul className="mt-4 space-y-1.5 text-sm">
+                <ul className="relative mt-4 space-y-1.5 text-sm">
                   {variants.map((v) => {
                     const theme = exp.themeMap[v.key];
                     const isControl = v.key === exp.controlVariant;
@@ -100,12 +127,12 @@ export default async function HomePage() {
                       >
                         <span className="font-mono text-xs text-fg">{v.key}</span>
                         {isControl && (
-                          <span className="text-[10px] font-medium uppercase text-info">
+                          <span className="font-mono text-[10px] font-medium uppercase tracking-wider text-info">
                             ctrl
                           </span>
                         )}
                         <span className="text-faint">·</span>
-                        <span className="tabular-nums text-faint">
+                        <span className="font-mono tabular-nums text-faint">
                           {v.rolloutPercentage}%
                         </span>
                         {theme && (
@@ -122,7 +149,7 @@ export default async function HomePage() {
                 </ul>
 
                 {/* Footer: detail link + controls */}
-                <div className="mt-5 flex items-center justify-between gap-3 border-t border-line pt-4">
+                <div className="relative mt-5 flex items-center justify-between gap-3 border-t border-line pt-4">
                   <div className="flex items-center gap-3 text-xs font-medium">
                     <Link
                       href={`/experiments/${exp.flag.key}`}
@@ -155,18 +182,20 @@ export default async function HomePage() {
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-line-strong bg-surface px-6 py-16 text-center">
+    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-line-strong bg-bg-deep px-6 py-16 text-center">
       <div className="mb-3 text-3xl" aria-hidden="true">
         🌶
       </div>
-      <h2 className="text-lg font-semibold text-fg">No experiments yet</h2>
+      <h2 className="font-display text-lg font-semibold text-fg">
+        No experiments yet
+      </h2>
       <p className="mt-1.5 max-w-sm text-sm text-muted">
         Create your first experiment to start assigning variants and measuring
         the payment-P&amp;L verdict.
       </p>
       <Link
         href="/experiments/new"
-        className="mt-5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition-opacity hover:opacity-90"
+        className="mt-5 rounded-lg bg-accent px-4 py-2 font-display text-sm font-semibold text-bg transition-all duration-200 ease-expo hover:-translate-y-0.5"
       >
         + New experiment
       </Link>

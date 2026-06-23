@@ -36,7 +36,7 @@ export default async function EditExperimentPage({
           <span aria-hidden="true">←</span> Back to experiment
         </Link>
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight text-fg">
+          <h1 className="font-display text-3xl font-bold tracking-tight text-fg">
             Edit {exp.name}
           </h1>
           <code className="font-mono text-xs text-faint">{exp.key}</code>

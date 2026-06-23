@@ -71,7 +71,9 @@ export function AssignmentTester({ experimentKey, sampleId }: Props) {
 
   return (
     <div className="rounded-xl border border-line bg-surface p-5">
-      <h3 className="text-sm font-semibold text-fg">Assignment tester</h3>
+      <h3 className="font-display text-sm font-semibold text-fg">
+        Assignment tester
+      </h3>
       <p className="mt-1 text-xs leading-relaxed text-muted">
         Resolve a user against the live engine. The same{" "}
         <code className="font-mono text-faint">distinctId</code> always lands in
@@ -91,7 +93,7 @@ export function AssignmentTester({ experimentKey, sampleId }: Props) {
         <button
           type="submit"
           disabled={view.status === "loading"}
-          className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg bg-accent px-4 py-2 font-display text-sm font-semibold text-bg transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {view.status === "loading" ? "Resolving…" : "Resolve"}
         </button>
@@ -121,7 +123,7 @@ export function AssignmentTester({ experimentKey, sampleId }: Props) {
         {view.status === "done" && (
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="rounded-lg border border-line bg-bg px-3 py-2.5">
-              <div className="text-[11px] font-medium uppercase tracking-wide text-faint">
+              <div className="font-mono text-[10px] font-medium uppercase tracking-wider text-faint">
                 Variant
               </div>
               <div className="mt-0.5 font-mono text-sm font-semibold text-fg">
@@ -135,7 +137,7 @@ export function AssignmentTester({ experimentKey, sampleId }: Props) {
               </div>
             </div>
             <div className="rounded-lg border border-line bg-bg px-3 py-2.5">
-              <div className="text-[11px] font-medium uppercase tracking-wide text-faint">
+              <div className="font-mono text-[10px] font-medium uppercase tracking-wider text-faint">
                 Routes to theme
               </div>
               <div className="mt-0.5 font-mono text-sm font-semibold text-fg">

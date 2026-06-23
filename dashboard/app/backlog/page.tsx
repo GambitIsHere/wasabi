@@ -45,12 +45,15 @@ export default async function BacklogPage({
 
   return (
     <div className="space-y-8">
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <h1 className="text-2xl font-semibold tracking-tight text-fg">
-            Test backlog
-          </h1>
-          <div className="flex items-center gap-0.5 rounded-lg border border-line bg-surface p-0.5 text-xs font-medium">
+      <section className="relative space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="space-y-3">
+            <p className="eyebrow">From YouTrack</p>
+            <h1 className="font-display text-4xl font-bold tracking-tight text-fg sm:text-5xl">
+              Test <span className="serif-accent">backlog</span>
+            </h1>
+          </div>
+          <div className="flex items-center gap-0.5 rounded-lg border border-line bg-surface p-0.5 font-mono text-xs font-medium">
             <Link href="/backlog" className={!showAll ? ACTIVE_TAB : IDLE_TAB}>
               Open
             </Link>
@@ -70,6 +73,10 @@ export default async function BacklogPage({
           model. This is that backlog, pulled live and tagged by business, so you
           can turn a ticket straight into a measured experiment.
         </p>
+        <div
+          className="h-0.5 w-28 rounded-full bg-accent"
+          aria-hidden="true"
+        />
       </section>
 
       {!backlog.configured ? (
@@ -81,10 +88,10 @@ export default async function BacklogPage({
           {groups.map(([business, tickets]) => (
             <div key={business} className="space-y-2.5">
               <div className="flex items-baseline gap-2">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-faint">
+                <h2 className="font-mono text-xs font-semibold uppercase tracking-wider text-muted">
                   {business}
                 </h2>
-                <span className="tabular-nums text-xs text-faint">
+                <span className="font-mono text-xs tabular-nums text-accent">
                   {tickets.length}
                 </span>
               </div>

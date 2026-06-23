@@ -34,11 +34,14 @@ export default async function ExperimentDetailPage({
       {/* 1. Header */}
       <header className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight text-fg">
-              {experiment.name}
-            </h1>
-            <StatusPill active={experiment.flag.active} />
+          <div className="space-y-2">
+            <p className="eyebrow">Experiment</p>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="font-display text-3xl font-bold tracking-tight text-fg">
+                {experiment.name}
+              </h1>
+              <StatusPill active={experiment.flag.active} />
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Link
@@ -80,12 +83,14 @@ export default async function ExperimentDetailPage({
       {/* 2. Variants table */}
       <section className="rounded-xl border border-line bg-surface">
         <header className="border-b border-line px-5 py-3">
-          <h2 className="text-sm font-semibold text-fg">Variants</h2>
+          <h2 className="font-display text-sm font-semibold text-fg">
+            Variants
+          </h2>
         </header>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[520px] text-sm">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wide text-faint">
+              <tr className="text-left font-mono text-[11px] uppercase tracking-wider text-faint">
                 <th className="px-5 py-2.5 font-medium">Variant</th>
                 <th className="px-3 py-2.5 text-right font-medium">Weight</th>
                 <th className="px-5 py-2.5 font-medium">Theme route</th>
@@ -134,7 +139,7 @@ export default async function ExperimentDetailPage({
       {/* 4. Live results + verdict (client, with loading/empty/error states) */}
       <section className="space-y-4">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-fg">
+          <h2 className="font-display text-lg font-semibold tracking-tight text-fg">
             Live results &amp; verdict
           </h2>
           <p className="mt-1 text-sm text-muted">

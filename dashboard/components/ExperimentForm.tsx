@@ -134,7 +134,7 @@ export function ExperimentForm({ mode, initial }: Props) {
     <form onSubmit={onSubmit} className="space-y-8">
       {/* --- Core fields --- */}
       <section className="rounded-xl border border-line bg-surface p-5">
-        <h2 className="text-sm font-semibold text-fg">Basics</h2>
+        <h2 className="font-display text-sm font-semibold text-fg">Basics</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="flex flex-col gap-1.5 sm:col-span-2">
             <span className="text-xs font-medium text-muted">Name</span>
@@ -200,7 +200,7 @@ export function ExperimentForm({ mode, initial }: Props) {
       <section className="rounded-xl border border-line bg-surface">
         <header className="flex items-center justify-between border-b border-line px-5 py-3">
           <div>
-            <h2 className="text-sm font-semibold text-fg">Variants</h2>
+            <h2 className="font-display text-sm font-semibold text-fg">Variants</h2>
             <p className="mt-0.5 text-xs text-faint">
               Pick exactly one control. Splits must sum to 100%.
             </p>
@@ -324,7 +324,7 @@ export function ExperimentForm({ mode, initial }: Props) {
           <button
             type="submit"
             disabled={!canSubmit}
-            className="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-bg transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg bg-accent px-5 py-2.5 font-display text-sm font-semibold text-bg transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {pending
               ? "Saving…"

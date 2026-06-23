@@ -31,7 +31,7 @@ export default function NewExperimentPage() {
         >
           <span aria-hidden="true">←</span> All experiments
         </Link>
-        <h1 className="text-2xl font-semibold tracking-tight text-fg">
+        <h1 className="font-display text-3xl font-bold tracking-tight text-fg">
           New experiment
         </h1>
         <p className="max-w-2xl text-sm leading-relaxed text-muted">

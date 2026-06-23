@@ -101,7 +101,7 @@ function ResultsReady({ rows, verdict }: { rows: VariantRow[]; verdict: Verdict 
       {/* Verdict header */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface p-5">
         <div>
-          <h3 className="text-sm font-semibold text-fg">Verdict</h3>
+          <h3 className="font-display text-sm font-semibold text-fg">Verdict</h3>
           <p className="mt-0.5 text-xs text-muted">
             Measured against control{" "}
             <code className="font-mono text-faint">{verdict.controlVariant}</code>
@@ -134,7 +134,7 @@ function FunnelSection({ rows, hasAds }: { rows: VariantRow[]; hasAds: boolean }
   return (
     <section className="rounded-xl border border-line bg-surface">
       <header className="border-b border-line px-5 py-3">
-        <h3 className="text-sm font-semibold text-fg">Acquisition funnel</h3>
+        <h3 className="font-display text-sm font-semibold text-fg">Acquisition funnel</h3>
         <p className="mt-0.5 text-xs text-faint">
           {hasAds ? "Ad click" : "App"} → revenue, per variant.
         </p>
@@ -217,7 +217,7 @@ function RevChart({
   return (
     <section className="rounded-xl border border-line bg-surface">
       <header className="border-b border-line px-5 py-3">
-        <h3 className="text-sm font-semibold text-fg">Revenue per acquired</h3>
+        <h3 className="font-display text-sm font-semibold text-fg">Revenue per acquired</h3>
         <p className="mt-0.5 text-xs text-faint">The money metric — collected-to-date.</p>
       </header>
       <div className="space-y-3 p-5">
@@ -268,7 +268,7 @@ function PerVariantTable({
   return (
     <section className="rounded-xl border border-line bg-surface">
       <header className="border-b border-line px-5 py-3">
-        <h3 className="text-sm font-semibold text-fg">Per-variant P&amp;L</h3>
+        <h3 className="font-display text-sm font-semibold text-fg">Per-variant P&amp;L</h3>
         <p className="mt-0.5 text-xs text-faint">
           Cohort-clean, collected-to-date. Net = revenue − refunds − chargebacks.
           Break-even CAC = net ÷ acquired (max you can pay per acquisition).
@@ -277,7 +277,7 @@ function PerVariantTable({
       <div className="overflow-x-auto">
         <table className="w-full min-w-[760px] text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide text-faint">
+            <tr className="text-left font-mono text-[11px] uppercase tracking-wider text-faint">
               <th className="px-5 py-2.5 font-medium">Variant</th>
               {hasAds && <th className="px-3 py-2.5 text-right font-medium">Clicks</th>}
               <th className="px-3 py-2.5 text-right font-medium">Apps</th>
@@ -342,13 +342,13 @@ function SignificanceTable({ significance }: { significance: SignificanceTest[] 
   return (
     <section className="rounded-xl border border-line bg-surface">
       <header className="border-b border-line px-5 py-3">
-        <h3 className="text-sm font-semibold text-fg">Significance vs control</h3>
+        <h3 className="font-display text-sm font-semibold text-fg">Significance vs control</h3>
         <p className="mt-0.5 text-xs text-faint">Two-proportion z-test, two-tailed.</p>
       </header>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px] text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide text-faint">
+            <tr className="text-left font-mono text-[11px] uppercase tracking-wider text-faint">
               <th className="px-5 py-2.5 font-medium">Metric · variant</th>
               <th className="px-3 py-2.5 text-right font-medium">Control</th>
               <th className="px-3 py-2.5 text-right font-medium">Variant</th>
@@ -402,12 +402,16 @@ function WinnersGrid({ verdict, ccy }: { verdict: Verdict; ccy?: string }) {
         const fmt = (n: number) => (isMoney ? money(n, ccy) : pct(n));
         return (
           <div key={w.metric} className="rounded-xl border border-line bg-surface p-4">
-            <div className="text-[11px] font-medium uppercase tracking-wide text-faint">
+            <div className="font-mono text-[10px] font-medium uppercase tracking-wider text-faint">
               {labels[w.metric]}
             </div>
             <div className="mt-1.5 flex items-baseline gap-2">
-              <span className="font-mono text-sm font-semibold text-accent">{w.winner}</span>
-              <span className="text-sm font-semibold text-fg">{fmt(w.winnerValue)}</span>
+              <span className="font-display text-2xl font-bold tabular-nums text-fg">
+                {fmt(w.winnerValue)}
+              </span>
+              <span className="font-mono text-xs font-semibold text-accent">
+                {w.winner}
+              </span>
             </div>
             <div className="mt-1 text-xs text-muted">
               {isControl ? (
@@ -430,7 +434,7 @@ function Narrative({ narrative }: { narrative: string }) {
   const paragraphs = narrative.split("\n\n");
   return (
     <section className="rounded-xl border border-line bg-bg-elevated p-5">
-      <h3 className="text-sm font-semibold text-fg">Recommendation narrative</h3>
+      <h3 className="font-display text-sm font-semibold text-fg">Recommendation narrative</h3>
       <div className="mt-3 space-y-3">
         {paragraphs.map((para, i) => {
           const isRec = para.startsWith("RECOMMENDATION");
@@ -478,7 +482,7 @@ function ResultsEmpty({ reason }: { reason: string }) {
       >
         🔌
       </div>
-      <h3 className="text-sm font-semibold text-fg">Connect Metabase to see live results</h3>
+      <h3 className="font-display text-sm font-semibold text-fg">Connect Metabase to see live results</h3>
       <p className="mt-1.5 max-w-md text-xs leading-relaxed text-muted">
         Live per-variant P&amp;L and the verdict load from the global-api Postgres via
         Metabase. Set <code className="font-mono text-faint">METABASE_URL</code> and{" "}
