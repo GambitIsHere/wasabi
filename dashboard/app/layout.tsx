@@ -34,6 +34,12 @@ export default function RootLayout({
               >
                 Experiments
               </Link>
+              <Link
+                href="/backlog"
+                className="rounded-md px-3 py-1.5 text-muted transition-colors hover:bg-surface hover:text-fg"
+              >
+                Backlog
+              </Link>
               <a
                 href="/api/flags"
                 className="rounded-md px-3 py-1.5 font-mono text-xs text-faint transition-colors hover:bg-surface hover:text-fg"
