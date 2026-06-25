@@ -36,3 +36,22 @@ Stop renting VWO (~€500/mo) and run our own A/B / Split-URL testing in-house o
 
 ## Decision
 Approve **Phase 0 spike** + a small VPS. No production traffic moves until the spike proves the ops and the insight depth.
+
+---
+
+## Postscript — what we actually built (June 2026 update)
+
+During Phase 0 we **pivoted** away from self-hosted PostHog to the lean alternative this proposal explicitly mentions as the fallback ("a lean owned assignment service — our code + Metabase"). Concretely:
+
+| | Originally proposed | What we built |
+|---|---|---|
+| **Assignment** | PostHog SDK | In-house engine — PostHog-wire-compatible SHA-1 hash, storage-free, served via `/api/decide` |
+| **Store** | ClickHouse + Kafka | Neon Postgres (Vercel's managed offering) |
+| **Hosting** | ~16 GB VPS, self-managed | Vercel free tier — no ops |
+| **Admin UI + verdict** | (would have used PostHog's) | Custom Next.js dashboard + Metabase-backed two-proportion significance test |
+| **Session recording** | PostHog (would replace Clarity) | **Not built** — Clarity stays separate for now |
+| **Cost** | ~€40–80/mo VPS | **~€0** (Vercel + Neon free tiers) |
+
+**Why the pivot:** the self-hosted PostHog stack (ClickHouse + Kafka, 16 GB memory floor) was real ops work for capabilities we didn't need on day one. The fallback delivers the same P&L tie with a fraction of the surface area; Clarity replacement can be a separate decision later. Net: better cost outcome, no ops burden, same insight depth.
+
+**Live at:** [`wasabi.sanjow-hub.com`](https://wasabi.sanjow-hub.com) — admin behind basic-auth, `/api/decide` + `/api/capture` public for storefronts. See [`ONE-PAGER.md`](./ONE-PAGER.md) for the current decision ask and [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the built system.
