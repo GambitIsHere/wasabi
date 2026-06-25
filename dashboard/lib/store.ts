@@ -25,6 +25,7 @@ import type {
   VariantInput,
 } from "./mgmt";
 import { slugify } from "./mgmt";
+import { SEED, SEED_PAUSED } from "./seeds";
 
 // ---------------------------------------------------------------------------
 // Row shapes (snake_case, as stored)
@@ -38,6 +39,7 @@ interface ExperimentRow {
   goal_metric: string;
   start_date: string;
   created_at: string;
+  description: string;
 }
 
 interface VariantRow {
@@ -72,6 +74,7 @@ function toStored(exp: ExperimentRow, variants: VariantRow[]): StoredExperiment 
     active: exp.active === 1,
     goalMetric: exp.goal_metric,
     startDate: exp.start_date,
+    description: exp.description ?? "",
     createdAt: exp.created_at,
     rolloutPercentage: 100,
     variants: variantInputs,
@@ -154,9 +157,10 @@ async function insertRaw(input: ExperimentInput): Promise<string> {
   const sql = getSql();
   const key = resolveKey(input);
   const createdAt = new Date().toISOString();
+  const description = (input.description ?? "").trim();
   await sql.transaction([
-    sql`INSERT INTO experiment (key, name, business, active, goal_metric, start_date, created_at)
-        VALUES (${key}, ${input.name.trim()}, ${input.business}, 1, ${input.goalMetric}, ${input.startDate}, ${createdAt})`,
+    sql`INSERT INTO experiment (key, name, business, active, goal_metric, start_date, created_at, description)
+        VALUES (${key}, ${input.name.trim()}, ${input.business}, 1, ${input.goalMetric}, ${input.startDate}, ${createdAt}, ${description})`,
     ...variantInserts(sql, key, input.variants),
   ]);
   return key;
@@ -183,10 +187,12 @@ export async function updateExperiment(
 ): Promise<void> {
   await ensureReady();
   const sql = getSql();
+  const description = (input.description ?? "").trim();
   await sql.transaction([
     sql`UPDATE experiment
           SET name = ${input.name.trim()}, business = ${input.business},
-              goal_metric = ${input.goalMetric}, start_date = ${input.startDate}
+              goal_metric = ${input.goalMetric}, start_date = ${input.startDate},
+              description = ${description}
         WHERE key = ${key}`,
     sql`DELETE FROM variant WHERE experiment_key = ${key}`,
     ...variantInserts(sql, key, input.variants),
@@ -219,8 +225,14 @@ export async function deleteExperiment(key: string): Promise<boolean> {
 // Keeps lib/engine/handlers.ts and lib/metabase.ts working unchanged.
 // ---------------------------------------------------------------------------
 
-/** A short human description derived from the stored fields. */
+/**
+ * Prefer the experiment's stored description; fall back to an auto-generated
+ * summary so legacy / unconfigured experiments still render something useful.
+ */
 function describe(exp: StoredExperiment): string {
+  if (exp.description && exp.description.trim().length > 0) {
+    return exp.description.trim();
+  }
   const arms = exp.variants.map((v) => v.key).join(" vs ");
   return `${exp.business} experiment (${arms}). Goal metric: ${exp.goalMetric}.`;
 }
@@ -255,84 +267,11 @@ export function toRegistered(exp: StoredExperiment): RegisteredExperiment {
 // ---------------------------------------------------------------------------
 // Seed-once — real, editable examples so the app is never blank on a fresh DB.
 // Seeds only when the table is empty (so user-deleted seeds don't reappear).
+// The SEED data itself lives in lib/seeds.ts so scripts/reseed.ts can re-apply
+// it to an already-populated DB without duplicating definitions.
 // ---------------------------------------------------------------------------
 
 let readyPromise: Promise<void> | null = null;
-
-const SEED: ExperimentInput[] = [
-  {
-    name: "Top-Up Billing UK",
-    key: "tu-billing-uk",
-    business: "Top Up",
-    goalMetric: "revenue_per_acquired",
-    startDate: "2026-05-07",
-    variants: [
-      { key: "control", rolloutPercentage: 50, themeSlug: "tu_lov_uk", isControl: true },
-      { key: "variant_19", rolloutPercentage: 50, themeSlug: "tu_lov_uk_19", isControl: false },
-    ],
-  },
-  {
-    name: "Top-Up Reward Page",
-    key: "tu-reward-page",
-    business: "Top Up",
-    goalMetric: "revenue_per_acquired",
-    startDate: "2026-05-07",
-    variants: [
-      { key: "a", rolloutPercentage: 50, themeSlug: "tu_lov_uk", isControl: true },
-      { key: "b", rolloutPercentage: 50, themeSlug: "tu_lov_ie_serenity", isControl: false },
-    ],
-  },
-  {
-    // AC-AB-002 (GP-54) — biweekly 24.9 vs quarterly 79. Seeded PAUSED below:
-    // verify the config in the UI, then hit Activate to start it.
-    name: "AC — Biweekly 24.9 vs Quarterly 79",
-    key: "ac-billing-24-9",
-    business: "Airport Check-In",
-    goalMetric: "revenue_per_acquired",
-    startDate: "2026-06-19",
-    variants: [
-      { key: "control", rolloutPercentage: 50, themeSlug: "ac_mto_lov", isControl: true },
-      { key: "variant_24_9", rolloutPercentage: 50, themeSlug: "ac_mto_lov_24_9", isControl: false },
-    ],
-  },
-  {
-    // AS (Airport Security / fast-track). PROPOSED price test — slugs are real
-    // Theme-table slugs. NOTE: fast-track drives price via a ?product=_1m_NN param,
-    // NOT the theme suffix, so its middleware sets ?product= AND ?theme= (the theme
-    // is the attribution tag). See integration/storefronts/. Verify the test design
-    // + prices with product before activating.
-    name: "AS — Fast-Track £19 vs £14 (1-month)",
-    key: "as-billing-1m",
-    business: "Airport Security",
-    goalMetric: "revenue_per_acquired",
-    startDate: "2026-06-22",
-    variants: [
-      { key: "control", rolloutPercentage: 50, themeSlug: "as_sub_1m_19", isControl: true },
-      { key: "variant_14", rolloutPercentage: 50, themeSlug: "as_sub_lov_1m_14", isControl: false },
-    ],
-  },
-  {
-    // PDF SaaS. PROPOSED price test — real Theme-table slugs (price encoded in the
-    // theme: auth49 = £49, auth19 = £19). Verify the test design with product
-    // before activating.
-    name: "PDF — £49 vs £19 (auth price)",
-    key: "pdf-price-49-19",
-    business: "PDF SaaS",
-    goalMetric: "revenue_per_acquired",
-    startDate: "2026-06-22",
-    variants: [
-      { key: "control", rolloutPercentage: 50, themeSlug: "pdf_auth49", isControl: true },
-      { key: "variant_19", rolloutPercentage: 50, themeSlug: "pdf_auth19", isControl: false },
-    ],
-  },
-];
-
-/** Keys that ship seeded but PAUSED — verify config, then Activate from the UI. */
-const SEED_PAUSED = new Set<string>([
-  "ac-billing-24-9",
-  "as-billing-1m",
-  "pdf-price-49-19",
-]);
 
 /**
  * One-time-per-process readiness: ensure the schema exists, then seed the examples

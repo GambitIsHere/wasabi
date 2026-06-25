@@ -28,6 +28,8 @@ export interface ExperimentInput {
   business: string;
   goalMetric: string;
   startDate: string;
+  /** Optional 1-2 sentence rationale shown on the card and detail page. */
+  description?: string;
   variants: VariantInput[];
 }
 
@@ -38,6 +40,8 @@ export interface StoredExperiment {
   active: boolean;
   goalMetric: string;
   startDate: string;
+  /** 1-2 sentence rationale; empty string when the user hasn't filled one in. */
+  description: string;
   createdAt: string;
   /** Share of users included in the flag at all — always 100 for managed experiments. */
   rolloutPercentage: number;
@@ -154,9 +158,15 @@ export function splitTotal(variants: readonly VariantInput[]): number {
  * `keyForUniqueness` is the resolved key (slug or provided) — validated for shape
  * here; the store layer checks cross-experiment uniqueness against the DB.
  */
+/** Max description length — keeps card layouts predictable; ~400 chars is 3-4 lines. */
+export const DESCRIPTION_MAX = 400;
+
 export function validateInput(input: ExperimentInput): string | null {
   if (!input.name || input.name.trim().length === 0) {
     return "Name is required.";
+  }
+  if (input.description !== undefined && input.description.length > DESCRIPTION_MAX) {
+    return `Description must be ${DESCRIPTION_MAX} characters or fewer (currently ${input.description.length}).`;
   }
   if (!BUSINESSES.includes(input.business as Business)) {
     return `Business must be one of: ${BUSINESSES.join(", ")}.`;

@@ -13,6 +13,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   BUSINESSES,
+  DESCRIPTION_MAX,
   GOAL_METRICS,
   THEME_SLUGS,
   slugify,
@@ -63,6 +64,7 @@ export function ExperimentForm({ mode, initial }: Props) {
   const [business, setBusiness] = useState(initial.business);
   const [goalMetric, setGoalMetric] = useState(initial.goalMetric);
   const [startDate, setStartDate] = useState(initial.startDate);
+  const [description, setDescription] = useState(initial.description ?? "");
   const [drafts, setDrafts] = useState<VariantDraft[]>(toDrafts(initial.variants));
 
   // On create the key tracks the name (slug); on edit it's immutable.
@@ -79,6 +81,7 @@ export function ExperimentForm({ mode, initial }: Props) {
     business,
     goalMetric,
     startDate,
+    description,
     variants,
   };
   const validationError = validateInput(candidate);
@@ -154,6 +157,26 @@ export function ExperimentForm({ mode, initial }: Props) {
             </span>
           </label>
 
+          <label className="flex flex-col gap-1.5 sm:col-span-2">
+            <span className="flex items-baseline justify-between">
+              <span className="text-xs font-medium text-muted">Description</span>
+              <span
+                className={`font-mono text-[10px] tabular-nums ${
+                  description.length > DESCRIPTION_MAX ? "text-bad" : "text-faint"
+                }`}
+              >
+                {description.length} / {DESCRIPTION_MAX}
+              </span>
+            </span>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Why this test exists — the hypothesis, what you'll learn, and any wiring/context the dashboard reader needs. Shown on the card and the detail header."
+              rows={3}
+              className="resize-y rounded-lg border border-line-strong bg-bg px-3 py-2 text-sm leading-relaxed text-fg placeholder:text-faint focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
+            />
+          </label>
+
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-muted">Business</span>
             <select
@@ -190,7 +213,7 @@ export function ExperimentForm({ mode, initial }: Props) {
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="rounded-lg border border-line-strong bg-bg px-3 py-2 text-sm text-fg focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40 [color-scheme:dark]"
+              className="rounded-lg border border-line-strong bg-bg px-3 py-2 text-sm text-fg focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
             />
           </label>
         </div>

@@ -23,6 +23,7 @@ export default async function EditExperimentPage({
     business: exp.business,
     goalMetric: exp.goalMetric,
     startDate: exp.startDate,
+    description: exp.description,
     variants: exp.variants,
   };
 

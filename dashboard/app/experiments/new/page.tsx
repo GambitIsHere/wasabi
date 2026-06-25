@@ -30,6 +30,7 @@ function buildInitial(p: {
     business,
     goalMetric: GOAL_METRICS[0],
     startDate: new Date().toISOString().slice(0, 10),
+    description: "",
     variants: [
       { key: "control", rolloutPercentage: 50, themeSlug: theme, isControl: true },
       { key: "variant_1", rolloutPercentage: 50, themeSlug: theme, isControl: false },

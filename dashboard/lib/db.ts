@@ -58,9 +58,12 @@ async function doCreateSchema(): Promise<void> {
       active      INTEGER NOT NULL DEFAULT 1,
       goal_metric TEXT NOT NULL,
       start_date  TEXT NOT NULL,
-      created_at  TEXT NOT NULL
+      created_at  TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT ''
     )
   `;
+  // Idempotent migration for existing DBs that pre-date the description column.
+  await sql`ALTER TABLE experiment ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`;
   await sql`
     CREATE TABLE IF NOT EXISTS variant (
       experiment_key     TEXT NOT NULL REFERENCES experiment(key) ON DELETE CASCADE,

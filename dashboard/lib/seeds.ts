@@ -1,0 +1,102 @@
+// ============================================================================
+// Wasabi — canonical seed experiments.
+// ----------------------------------------------------------------------------
+// Single source of truth for the experiments that ship out-of-the-box. Imported
+// by lib/store.ts (which seeds on an empty DB) and scripts/reseed.ts (which
+// wipes + re-applies for the live DB).
+//
+// Edit this file to change what a fresh deploy looks like — run reseed.ts to
+// push the change to an already-populated DB.
+// ============================================================================
+import type { ExperimentInput } from "./mgmt";
+
+export const SEED: ExperimentInput[] = [
+  // ─── SAMPLE TESTS (active) ───────────────────────────────────────────────
+  {
+    name: "TU — Billing UK: £19 (14-day) vs £39 (30-day)",
+    key: "tu-billing-uk",
+    business: "Top Up",
+    goalMetric: "revenue_per_acquired",
+    startDate: "2026-05-07",
+    description:
+      "Tests whether the £19 / 14-day SKU lifts net revenue per acquired UK customer vs the £39 / 30-day default. The £19 arm collected rebills at ~2× in the live VWO run — Wasabi confirms it with the auth + rebill + LTV cut VWO structurally can't see.",
+    variants: [
+      { key: "control", rolloutPercentage: 50, themeSlug: "tu_lov_uk", isControl: true },
+      { key: "variant_19", rolloutPercentage: 50, themeSlug: "tu_lov_uk_19", isControl: false },
+    ],
+  },
+  {
+    name: "TU — Reward page: default vs IE Serenity",
+    key: "tu-reward-page",
+    business: "Top Up",
+    goalMetric: "revenue_per_acquired",
+    startDate: "2026-05-07",
+    description:
+      "Different lever from price: tests whether the 'IE Serenity' reward-page layout (calmer hero, simpler upsell) lifts net revenue per acquired customer vs the current default. Shows the platform measures copy / layout tests too — not just SKU price.",
+    variants: [
+      { key: "a", rolloutPercentage: 50, themeSlug: "tu_lov_uk", isControl: true },
+      { key: "b", rolloutPercentage: 50, themeSlug: "tu_lov_ie_serenity", isControl: false },
+    ],
+  },
+  {
+    name: "AC — Quarterly €79 (control) vs Biweekly €24.90",
+    key: "ac-billing-24-9",
+    business: "Airport Check-In",
+    goalMetric: "revenue_per_acquired",
+    startDate: "2026-06-22",
+    description:
+      "Current default is the €79 / 90-day plan; this test introduces a shorter €24.90 / 14-day plan. Hypothesis: lower up-front friction lifts trial→paid conversion AND rebill volume, even with a smaller ticket — same pattern that played out on TU UK. Active in wasabi; first live traffic awaits the AC storefront middleware wire-up.",
+    variants: [
+      { key: "quarterly_79", rolloutPercentage: 50, themeSlug: "ac_mto_lov", isControl: true },
+      { key: "biweekly_24_9", rolloutPercentage: 50, themeSlug: "ac_mto_lov_24_9", isControl: false },
+    ],
+  },
+
+  // ─── UPCOMING TESTS (paused — see SEED_PAUSED below) ─────────────────────
+  {
+    name: "AS — Fast-Track 1-month: £19 (control) vs £14",
+    key: "as-billing-1m",
+    business: "Airport Security",
+    goalMetric: "revenue_per_acquired",
+    startDate: "2026-07-01",
+    description:
+      "Tests whether dropping the 1-month fast-track sub from £19 to £14 lifts net revenue per acquired customer via higher rebill collection. Note: fast-track drives price via ?product=, not the theme suffix; middleware sets BOTH ?product= and ?theme= so attribution still flows. See integration/storefronts/.",
+    variants: [
+      { key: "control_19", rolloutPercentage: 50, themeSlug: "as_sub_1m_19", isControl: true },
+      { key: "variant_14", rolloutPercentage: 50, themeSlug: "as_sub_lov_1m_14", isControl: false },
+    ],
+  },
+  {
+    name: "PDF — Auth price: £49 (control) vs £19",
+    key: "pdf-price-49-19",
+    business: "PDF SaaS",
+    goalMetric: "revenue_per_acquired",
+    startDate: "2026-07-01",
+    description:
+      "Tests whether dropping the auth-gate price from £49 to £19 lifts net revenue per acquired PDF customer. Direct price A/B — same lever as TU billing, applied to a different conversion gate. Ready to launch once PDF storefront middleware is wired in.",
+    variants: [
+      { key: "control_49", rolloutPercentage: 50, themeSlug: "pdf_auth49", isControl: true },
+      { key: "variant_19", rolloutPercentage: 50, themeSlug: "pdf_auth19", isControl: false },
+    ],
+  },
+  {
+    name: "GT — Booking fee: free (control) vs €4.99",
+    key: "gt-booking-fee",
+    business: "Global Tickets",
+    goalMetric: "revenue_per_acquired",
+    startDate: "2026-07-08",
+    description:
+      "Tests whether adding a €4.99 booking fee at checkout reduces conversion enough to offset the per-order revenue lift — a question VWO structurally can't answer (it sees the conversion drop but not the downstream net revenue per acquired customer). Demonstrates the platform covering a 5th business and a 'paid add-on' test pattern.",
+    variants: [
+      { key: "control_free", rolloutPercentage: 50, themeSlug: "gt_default", isControl: true },
+      { key: "variant_499", rolloutPercentage: 50, themeSlug: "gt_default_fee_499", isControl: false },
+    ],
+  },
+];
+
+/** Keys that ship seeded but PAUSED — verify config, then Activate from the UI. */
+export const SEED_PAUSED = new Set<string>([
+  "as-billing-1m",
+  "pdf-price-49-19",
+  "gt-booking-fee",
+]);
