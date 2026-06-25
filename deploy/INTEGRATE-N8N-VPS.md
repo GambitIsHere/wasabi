@@ -1,5 +1,7 @@
 # Deploy Wasabi onto the n8n VPS (shares the existing Caddy)
 
+> ⚠️ **Alternative self-host path.** The canonical deploy is **Vercel + Neon** at [`wasabi.sanjow-hub.com`](https://wasabi.sanjow-hub.com) (see [`../README.md`](../README.md)). Use this runbook only if you need to escape Vercel/Neon dependencies — e.g. data-residency requirements, total ownership, or migrating off serverless. Note: the live Neon experiment store would need to be migrated to a self-hosted Postgres at the same time, and `wasabi.sanjow-hub.com`'s DNS would need to be pointed at the VPS instead of Vercel.
+
 The n8n box already runs Caddy on 80/443. Wasabi does **not** get its own proxy —
 it joins n8n's network and n8n's Caddy serves it at `wasabi.sanjow-hub.com`.
 
