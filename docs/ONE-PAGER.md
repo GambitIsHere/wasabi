@@ -15,7 +15,7 @@ A full **create → activate → assign → verdict** loop, live in the browser 
 - **Create/configure** experiments in a UI — variants, traffic split, `?theme=` routing, live validation.
 - **Sticky, PostHog-compatible assignment** — storefronts call one endpoint (`/api/decide`); the existing theme system is untouched.
 - **Live per-variant P&L verdict** — two-proportion significance test + a ship / keep-running / inconclusive call.
-- **Persisted in Neon Postgres, deployed on Vercel, admin behind basic-auth.**
+- **Persisted in Neon Postgres, deployed on Vercel, admin behind Google SSO (Auth.js, `@sanjow.com`).**
 
 ## What's left (small, days not months)
 1. **Move the repo to the org** (`GambitIsHere/wasabi` → `Sanjow-Ventures/wasabi`).

@@ -85,8 +85,52 @@
   --grad-depth: linear-gradient(135deg, #0a0e1a, #1a1f2e);
 }
 
+/* ---------------------------------------------------------------------------
+   Light variant — activates with the OS setting (prefers-color-scheme: light).
+   Optimiser.Pro is dark-native; this keeps the editorial feel while staying
+   legible on white: surfaces invert to slate/white, text to slate-900/600,
+   borders to black-alphas, and the mint accent deepens to emerald so it works
+   as both text and fill. Only token VALUES flip — every component (which uses
+   the semantic tokens) recolours automatically.
+--------------------------------------------------------------------------- */
+@media (prefers-color-scheme: light) {
+  :root {
+    --color-bg: #f4f6f9; /* page */
+    --color-bg-deep: #ffffff; /* home cards */
+    --color-bg-elevated: #f8fafc; /* active / narrative panels */
+    --color-surface: #ffffff; /* cards & panels */
+    --color-surface-hover: #eef2f7;
+    --color-raised: #ffffff;
+
+    --color-line-whisper: rgba(2, 6, 23, 0.04);
+    --color-line: rgba(2, 6, 23, 0.1);
+    --color-line-strong: rgba(2, 6, 23, 0.16);
+
+    --color-fg: #0f172a; /* slate-900 */
+    --color-muted: #475569; /* slate-600 */
+    --color-faint: #64748b; /* slate-500 */
+    --color-ghost: #94a3b8; /* slate-400 */
+
+    /* Mint → emerald: legible as text AND as a button fill on white. */
+    --color-accent: #047857;
+    --color-accent-soft: #10b981;
+    --color-info: #2563eb;
+    --color-good: #047857;
+    --color-warn: #b45309;
+    --color-bad: #dc2626;
+
+    --color-blue: #2563eb;
+    --color-amber: #b45309;
+    --color-violet: #7c3aed;
+    --color-pink: #db2777;
+    --color-sky: #0284c7;
+    --color-orange: #ea580c;
+    --color-green: #059669;
+  }
+}
+
 html {
-  color-scheme: dark;
+  color-scheme: light dark;
 }
 
 body {
@@ -99,7 +143,7 @@ body {
 
 ::selection {
   background: rgba(0, 229, 160, 0.25);
-  color: #f1f5f9;
+  color: var(--color-fg);
 }
 
 /* Subtle, theme-matched scrollbars so nothing flashes a light gutter. */

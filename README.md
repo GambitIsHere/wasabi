@@ -21,7 +21,7 @@ This repo started as a fork of [Intuit's open-source Wasabi](README.intuit-origi
 | `decision-helper/` | the verdict layer — Metabase models + a two-proportion significance test → ship / keep-running call |
 | `integration/` | drop-in storefront middleware templates (TU/AC/AS/PDF) + the rollout guide |
 | `deploy/` | self-host runbook (Docker + Caddy) — **alternative**; canonical deploy is Vercel + Neon |
-| `reference/` *(the Intuit Java)* | original Wasabi — reference only, not run |
+| `modules/` *(the Intuit Java)* | original Wasabi monorepo (`pom.xml` + Java modules) — reference only, not run |
 
 ## Status
-🟢 **Built and live** at [`wasabi.sanjow-hub.com`](https://wasabi.sanjow-hub.com) (Vercel + Neon, admin behind basic-auth, `/api/decide`+`/api/capture` public for storefronts). What's left: (1) move the repo from `GambitIsHere/wasabi` → `Sanjow-Ventures/wasabi`, (2) wire the first storefront's middleware → first real traffic. See `docs/ONE-PAGER.md`.
+🟢 **Built and live** at [`wasabi.sanjow-hub.com`](https://wasabi.sanjow-hub.com) (Vercel + Neon, admin behind Google SSO — Auth.js, `@sanjow.com`; `/api/decide`+`/api/capture` public for storefronts). What's left: (1) move the repo from `GambitIsHere/wasabi` → `Sanjow-Ventures/wasabi`, (2) wire the first storefront's middleware → first real traffic. See `docs/ONE-PAGER.md`.
