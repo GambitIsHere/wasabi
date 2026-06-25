@@ -11,12 +11,19 @@
 //   • /api/decide + /api/capture   — storefronts call these cross-origin
 //   • /api/auth/*                  — OAuth callback handlers (would infinite-loop otherwise)
 //   • /signin                      — the sign-in page itself
+//   • /handover.html               — public CTO handover / install doc
 //
 // Runs on the Edge runtime.
 // ============================================================================
 import { auth } from "@/auth";
 
-const PUBLIC_PREFIXES = ["/api/decide", "/api/capture", "/api/auth", "/signin"];
+const PUBLIC_PREFIXES = [
+  "/api/decide",
+  "/api/capture",
+  "/api/auth",
+  "/signin",
+  "/handover.html",
+];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some(

@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Wasabi — CTO Handover &amp; Installation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Optimiser.Pro — dark-native, light variant via prefers-color-scheme. */
+      :root {
+        --bg: #050508;
+        --surface: #111827;
+        --elevated: #1a1f2e;
+        --line: rgba(255, 255, 255, 0.08);
+        --line-strong: rgba(255, 255, 255, 0.15);
+        --fg: #f1f5f9;
+        --muted: #94a3b8;
+        --faint: #64748b;
+        --accent: #00e5a0;
+        --info: #5b8def;
+        --warn: #fbbf24;
+        --bad: #ff6b6b;
+        --code-bg: #0a0e1a;
+        --grad: linear-gradient(135deg, #00e5a0, #5b8def);
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f4f6f9;
+          --surface: #ffffff;
+          --elevated: #f8fafc;
+          --line: rgba(2, 6, 23, 0.1);
+          --line-strong: rgba(2, 6, 23, 0.16);
+          --fg: #0f172a;
+          --muted: #475569;
+          --faint: #64748b;
+          --accent: #047857;
+          --info: #2563eb;
+          --warn: #b45309;
+          --bad: #dc2626;
+          --code-bg: #f1f5f9;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        color-scheme: light dark;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: "Inter", system-ui, sans-serif;
+        line-height: 1.65;
+        -webkit-font-smoothing: antialiased;
+      }
+      .aurora {
+        height: 3px;
+        background: var(--grad);
+      }
+      header.top {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        backdrop-filter: blur(10px);
+        background: color-mix(in srgb, var(--bg) 82%, transparent);
+        border-bottom: 1px solid var(--line);
+      }
+      .top-inner {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 14px 28px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .brand {
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 600;
+        font-size: 1.1rem;
+      }
+      .brand .tag {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.62rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-left: 8px;
+      }
+      .top-inner a.live {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.72rem;
+        color: var(--accent);
+        text-decoration: none;
+        border: 1px solid var(--line-strong);
+        padding: 5px 12px;
+        border-radius: 999px;
+      }
+      main {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 56px 28px 96px;
+      }
+      .eyebrow {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.72rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      h1 {
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 700;
+        font-size: clamp(2.2rem, 5vw, 3.2rem);
+        letter-spacing: -0.03em;
+        line-height: 1.05;
+        margin: 14px 0 10px;
+      }
+      h1 em {
+        font-family: "Instrument Serif", serif;
+        font-style: italic;
+        font-weight: 400;
+        color: var(--accent);
+      }
+      .lede {
+        font-size: 1.12rem;
+        color: var(--muted);
+        max-width: 60ch;
+      }
+      .meta {
+        margin-top: 18px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.74rem;
+        color: var(--faint);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 18px;
+      }
+      .meta b {
+        color: var(--accent);
+        font-weight: 500;
+      }
+      .accent-line {
+        width: 96px;
+        height: 2px;
+        background: var(--accent);
+        border-radius: 2px;
+        margin: 30px 0;
+      }
+      h2 {
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 600;
+        font-size: 1.5rem;
+        letter-spacing: -0.02em;
+        margin: 56px 0 6px;
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        scroll-margin-top: 80px;
+      }
+      h2 .num {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.8rem;
+        color: var(--accent);
+      }
+      h3 {
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 600;
+        font-size: 1.05rem;
+        margin: 30px 0 4px;
+      }
+      p,
+      li {
+        color: var(--fg);
+      }
+      .muted,
+      .muted * {
+        color: var(--muted);
+      }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+        border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+      }
+      a:hover {
+        border-bottom-color: var(--accent);
+      }
+      code {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.86em;
+        background: var(--code-bg);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 1px 6px;
+        color: var(--fg);
+      }
+      pre {
+        background: var(--code-bg);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 16px 18px;
+        overflow-x: auto;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.82rem;
+        line-height: 1.6;
+      }
+      pre code {
+        background: none;
+        border: 0;
+        padding: 0;
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 22px 24px;
+        margin: 18px 0;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 18px 0;
+        font-size: 0.9rem;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      th {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.66rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--faint);
+        font-weight: 500;
+      }
+      td code {
+        white-space: nowrap;
+      }
+      .callout {
+        border: 1px solid var(--line-strong);
+        border-left: 3px solid var(--accent);
+        background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+        border-radius: 8px;
+        padding: 14px 18px;
+        margin: 18px 0;
+        font-size: 0.94rem;
+      }
+      .callout.warn {
+        border-left-color: var(--warn);
+        background: color-mix(in srgb, var(--warn) 9%, var(--surface));
+      }
+      .callout .label {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.66rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      .callout.warn .label {
+        color: var(--warn);
+      }
+      .pill {
+        display: inline-block;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.66rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        padding: 2px 9px;
+        border-radius: 999px;
+        border: 1px solid;
+      }
+      .pill.ok {
+        color: var(--accent);
+        border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+      }
+      .pill.req {
+        color: var(--bad);
+        border-color: color-mix(in srgb, var(--bad) 40%, transparent);
+        background: color-mix(in srgb, var(--bad) 12%, transparent);
+      }
+      .pill.opt {
+        color: var(--faint);
+        border-color: var(--line-strong);
+      }
+      .toc {
+        font-size: 0.92rem;
+        columns: 2;
+        column-gap: 32px;
+        margin: 6px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+      .toc li {
+        margin: 5px 0;
+        break-inside: avoid;
+      }
+      .toc a {
+        border: 0;
+        color: var(--muted);
+      }
+      .toc a:hover {
+        color: var(--accent);
+      }
+      .toc .n {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.74rem;
+        color: var(--accent);
+        margin-right: 8px;
+      }
+      .flow {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.78rem;
+        line-height: 1.9;
+        color: var(--muted);
+        white-space: pre-wrap;
+      }
+      .flow b {
+        color: var(--accent);
+        font-weight: 500;
+      }
+      ul.check {
+        list-style: none;
+        padding: 0;
+      }
+      ul.check li {
+        padding-left: 26px;
+        position: relative;
+        margin: 8px 0;
+      }
+      ul.check li::before {
+        content: "☐";
+        position: absolute;
+        left: 0;
+        color: var(--accent);
+      }
+      footer {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 28px;
+        border-top: 1px solid var(--line);
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.72rem;
+        color: var(--faint);
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      footer .opt {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="aurora"></div>
+    <header class="top">
+      <div class="top-inner">
+        <div class="brand">🌶 Wasabi <span class="tag">CTO Handover</span></div>
+        <a class="live" href="https://wasabi.sanjow-hub.com">wasabi.sanjow-hub.com ↗</a>
+      </div>
+    </header>
+
+    <main>
+      <p class="eyebrow">Handover &amp; Company-Wide Installation</p>
+      <h1>Bring A/B testing <em>in-house</em>.</h1>
+      <p class="lede">
+        Wasabi is Sanjow's own experimentation platform — built, deployed, and
+        running in production. This is the handover for <b>Pedro (CTO)</b>: what
+        it is, how it's built, how to stand it up from scratch, and how to roll
+        it out across every storefront to retire VWO.
+      </p>
+      <div class="meta">
+        <span>Status <b>Built &amp; live</b></span>
+        <span>Prepared 2026-06-25</span>
+        <span>Audience CTO review → company-wide rollout</span>
+      </div>
+
+      <div class="accent-line"></div>
+
+      <ol class="toc">
+        <li><a href="#summary"><span class="n">01</span>Executive summary</a></li>
+        <li><a href="#live"><span class="n">02</span>What's built &amp; live</a></li>
+        <li><a href="#arch"><span class="n">03</span>Architecture</a></li>
+        <li><a href="#repo"><span class="n">04</span>Repository &amp; ownership</a></li>
+        <li><a href="#install"><span class="n">05</span>Install from scratch</a></li>
+        <li><a href="#security"><span class="n">06</span>Security &amp; access</a></li>
+        <li><a href="#rollout"><span class="n">07</span>Company-wide rollout</a></li>
+        <li><a href="#ops"><span class="n">08</span>Operations</a></li>
+        <li><a href="#checklist"><span class="n">09</span>CTO checklist &amp; decisions</a></li>
+        <li><a href="#refs"><span class="n">10</span>References</a></li>
+      </ol>
+
+      <!-- 01 -->
+      <h2 id="summary"><span class="num">01</span>Executive summary</h2>
+      <p>
+        <b>Wasabi replaces VWO with our own experimentation platform</b> — and
+        unlike VWO, it ties every test to <b>real payment P&amp;L</b>. It assigns
+        each visitor a sticky variant, routes them through our existing
+        <code>?theme=</code> mechanism, and reads the result straight from the
+        payments database: first-payment approval, rebill collection, revenue per
+        customer, and statistical significance.
+      </p>
+      <div class="card muted">
+        <table style="margin: 0">
+          <tr>
+            <th>Why it matters</th>
+            <th>VWO (today)</th>
+            <th>Wasabi (live)</th>
+          </tr>
+          <tr>
+            <td>Cost</td>
+            <td>~€6,000 / yr</td>
+            <td><b style="color: var(--accent)">~€0</b> — Vercel + Neon free tiers</td>
+          </tr>
+          <tr>
+            <td>Test ↔ revenue</td>
+            <td>Not connected</td>
+            <td>Same database</td>
+          </tr>
+          <tr>
+            <td>Data ownership</td>
+            <td>VWO's servers</td>
+            <td>Ours</td>
+          </tr>
+          <tr>
+            <td>The verdict</td>
+            <td>Thank-you-page conversion %</td>
+            <td>Auth / rebill / LTV per variant + significance</td>
+          </tr>
+        </table>
+      </div>
+      <p>
+        <b>The ask of the CTO:</b> review this, then own it and approve the
+        company-wide rollout — (1) move the repo into the org, (2) wire the first
+        storefront (Top Up) to prove it on real traffic, (3) roll across the rest
+        and retire VWO.
+      </p>
+
+      <!-- 02 -->
+      <h2 id="live"><span class="num">02</span>What's built &amp; live today</h2>
+      <p>
+        A full <b>create → assign → verdict</b> loop is live in the browser at
+        <a href="https://wasabi.sanjow-hub.com">wasabi.sanjow-hub.com</a>:
+      </p>
+      <ul>
+        <li>
+          <b>Experiment dashboard &amp; editor</b> — create/configure experiments
+          (variants, traffic split, <code>?theme=</code> routing, live validation,
+          activate/pause/delete).
+        </li>
+        <li>
+          <b>Sticky assignment API</b> (<code>/api/decide</code>) — storefronts
+          call one endpoint; PostHog-wire-compatible; the existing theme system is
+          untouched.
+        </li>
+        <li>
+          <b>Live per-variant P&amp;L verdict</b> — acquisition funnel, net
+          revenue, break-even CAC, currency-aware, two-proportion significance
+          test → ship / keep-running / inconclusive call.
+        </li>
+        <li>
+          <b>Test backlog</b> (<code>/backlog</code>) — sourced live from YouTrack
+          (<code>tag: experiment</code>, 41 tickets tagged); one click prefills a
+          new experiment from a ticket.
+        </li>
+        <li>
+          <b>Admin gate</b> — Google SSO (<code>@sanjow.com</code>); storefront
+          APIs stay public.
+        </li>
+      </ul>
+      <p class="muted">
+        <b>Deferred (by design):</b> session recording / heatmaps (MS Clarity
+        stays for now); persisted capture events (<code>/api/capture</code> is a
+        compatibility stub). Neither blocks the rollout.
+      </p>
+
+      <!-- 03 -->
+      <h2 id="arch"><span class="num">03</span>Architecture</h2>
+      <p>
+        The insight: we already owned most of the pipeline — variant→product
+        resolution (<code>?theme=</code>), attribution (<code>Transaction.themeId</code>),
+        and analysis (Metabase). The <b>only missing piece was assignment</b>,
+        built in-house and PostHog-compatible.
+      </p>
+      <div class="card">
+        <div class="flow">visitor → storefront (Next.js middleware, edge)
+   → POST <b>/api/decide</b>  { distinctId }
+        ← SHA-1 hash → [0,1) bucket → <b>variant slug</b> per experiment
+   → redirect/rewrite adds <b>?theme=&lt;slug&gt;</b>
+   → existing theme-resolver picks the product/billing variant   [UNCHANGED]
+   → Application.themeId → Transaction.themeId                    [UNCHANGED]
+        → Metabase (global-api DB) → <b>verdict</b>: auth / rebill / LTV
+          → two-proportion significance test → ship / keep-running</div>
+      </div>
+      <p>
+        <b>The one detail worth knowing:</b> assignment is a storage-free,
+        deterministic SHA-1 hash of <code>"{experimentKey}.{distinctId}{salt}"</code>
+        → a number in <code>[0,1)</code>. Same inputs → same arm on any machine,
+        no DB lookup. PostHog's SDKs use the same scheme, so we can swap to/from
+        PostHog later without reshuffling users.
+      </p>
+      <table>
+        <tr><th>Layer</th><th>Tech</th></tr>
+        <tr><td>Dashboard + APIs</td><td>Next.js 16 (App Router) · React 19 · TypeScript · Tailwind v4</td></tr>
+        <tr><td>Assignment engine</td><td><code>engine/</code> — SHA-1 hash → bucket → variant; <code>/decide</code> · <code>/capture</code> · <code>/flags</code> + SDK + CLI</td></tr>
+        <tr><td>Store</td><td>Neon Postgres (serverless) — experiment definitions</td></tr>
+        <tr><td>Verdict</td><td><code>decision-helper/</code> — Metabase over the global-api Postgres + significance test</td></tr>
+        <tr><td>Auth</td><td>Auth.js v5 (next-auth@beta) — Google SSO</td></tr>
+        <tr><td>Hosting</td><td>Vercel (Node 24) + custom domain</td></tr>
+      </table>
+
+      <!-- 04 -->
+      <h2 id="repo"><span class="num">04</span>Repository &amp; ownership</h2>
+      <p>
+        Build repo: <code>github.com/GambitIsHere/wasabi</code> (branch
+        <code>develop</code>). <b>Recommended first handover step: move it to
+        <code>Sanjow-Ventures/wasabi</code></b> and repoint the Vercel git
+        connection.
+      </p>
+      <table>
+        <tr><th>Path</th><th>What</th></tr>
+        <tr><td><code>dashboard/</code></td><td>Next.js admin UI + the live <code>/api/*</code> routes + Neon store + Metabase verdict + YouTrack backlog. <b>This is what deploys.</b></td></tr>
+        <tr><td><code>engine/</code></td><td>The PostHog-compatible assignment engine (hash → bucket → variant) + SDK + CLI.</td></tr>
+        <tr><td><code>decision-helper/</code></td><td>The verdict layer — Metabase models + two-proportion significance test.</td></tr>
+        <tr><td><code>integration/</code></td><td>Drop-in storefront middleware templates (TU/AC/AS/PDF) + the rollout guide.</td></tr>
+        <tr><td><code>deploy/</code></td><td>Self-host runbook (Docker + Caddy) — <b>alternative only</b>; canonical deploy is Vercel + Neon.</td></tr>
+        <tr><td><code>modules/</code> <span class="pill opt">ref</span></td><td>The original Intuit Java monorepo — historical reference, <b>not run</b>.</td></tr>
+      </table>
+
+      <!-- 05 -->
+      <h2 id="install"><span class="num">05</span>Install from scratch</h2>
+      <p class="muted">
+        Vercel-root is <code>dashboard/</code>. The steps below stand up a fresh,
+        production-equivalent instance.
+      </p>
+      <h3>Prerequisites</h3>
+      <ul>
+        <li><b>Vercel</b> account/team (current: <code>SVK-OP</code>) + a project with Root Directory = <code>dashboard</code>, Node 24.</li>
+        <li><b>Neon</b> Postgres database (Vercel's managed Neon integration injects <code>DATABASE_URL</code> automatically).</li>
+        <li><b>Google Cloud</b> OAuth client (for SSO) — consent screen set to <b>Internal</b>.</li>
+        <li><i>Optional:</i> Metabase API key (live results) · YouTrack read token (backlog).</li>
+      </ul>
+
+      <h3>Environment variables</h3>
+      <table>
+        <tr><th>Variable</th><th></th><th>Purpose / where</th></tr>
+        <tr><td><code>DATABASE_URL</code></td><td><span class="pill req">req</span></td><td>Neon Postgres (auto-injected by the Vercel↔Neon integration; <code>POSTGRES_URL</code> is a fallback). The experiment store.</td></tr>
+        <tr><td><code>AUTH_SECRET</code></td><td><span class="pill req">req</span></td><td>Session-JWT encryption key. Generate: <code>openssl rand -base64 32</code>. Keep stable.</td></tr>
+        <tr><td><code>AUTH_GOOGLE_ID</code></td><td><span class="pill req">req</span></td><td>Google OAuth Client ID (Cloud Console → Credentials).</td></tr>
+        <tr><td><code>AUTH_GOOGLE_SECRET</code></td><td><span class="pill req">req</span></td><td>Google OAuth Client Secret. Secret — Vercel env only.</td></tr>
+        <tr><td><code>AUTH_ALLOWED_EMAIL_DOMAIN</code></td><td><span class="pill req">req</span></td><td>Allowed sign-in domain, e.g. <code>sanjow.com</code>.</td></tr>
+        <tr><td><code>METABASE_URL</code> + <code>METABASE_API_KEY</code></td><td><span class="pill opt">opt</span></td><td>Live per-variant P&amp;L results. Without it the results panel degrades gracefully.</td></tr>
+        <tr><td><code>YOUTRACK_HOST</code> + <code>YOUTRACK_TOKEN</code></td><td><span class="pill opt">opt</span></td><td>Backlog source (e.g. <code>sanjow.youtrack.cloud</code> + a read token).</td></tr>
+        <tr><td><code>YOUTRACK_BACKLOG_QUERY</code></td><td><span class="pill opt">opt</span></td><td>Set to <code>tag: experiment</code> for the clean tag-based backlog (else keyword heuristic).</td></tr>
+      </table>
+      <div class="callout warn">
+        <div class="label">⚠ Set AUTH_* in EVERY environment</div>
+        The SSO gate currently fails <b>open</b> if <code>AUTH_SECRET</code> is
+        missing. Production has the <code>AUTH_*</code> vars; ensure
+        <b>Preview</b> does too (Vercel's preview protection covers the gap today,
+        but the gate itself should be made fail-<i>closed</i> — see §06).
+      </div>
+
+      <h3>Steps</h3>
+      <pre><code># 1 · clone + deps
+git clone https://github.com/GambitIsHere/wasabi.git &amp;&amp; cd wasabi/dashboard
+npm install
+
+# 2 · Google OAuth (Cloud Console → APIs &amp; Services → Credentials)
+#     Authorized redirect URI:
+#     https://&lt;your-domain&gt;/api/auth/callback/google
+
+# 3 · generate the session secret
+openssl rand -base64 32        # → AUTH_SECRET
+
+# 4 · set env vars in Vercel (Production + Preview), provision Neon
+# 5 · Vercel project: Root Directory = dashboard, Node 24, connect `develop`,
+#     set Production Branch = develop  (so pushes auto-deploy to prod)
+
+# 6 · deploy
+git push origin develop        # → preview;  or:  vercel --prod
+
+# local dev:
+cp .env.example .env.local      # fill in values
+npm run dev</code></pre>
+      <h3>Verify</h3>
+      <pre><code>curl -X POST https://&lt;domain&gt;/api/decide -d '{"distinctId":"u1"}'   # → 200 (public)
+curl -I  https://&lt;domain&gt;/backlog                                  # → 302 → /signin (gated)
+# then sign in with an @sanjow.com Google account</code></pre>
+
+      <!-- 06 -->
+      <h2 id="security"><span class="num">06</span>Security &amp; access</h2>
+      <table>
+        <tr><th>Surface</th><th>Access</th></tr>
+        <tr><td><code>/api/decide</code>, <code>/api/capture</code></td><td><span class="pill ok">public</span> storefronts call cross-origin</td></tr>
+        <tr><td><code>/handover.html</code>, <code>/signin</code>, <code>/api/auth/*</code></td><td><span class="pill ok">public</span></td></tr>
+        <tr><td>Everything else (admin UI, <code>/api/flags</code>, <code>/api/tickets</code>, results, <code>/admin/reseed</code>)</td><td><span class="pill req">gated</span> Google SSO, <code>@sanjow.com</code></td></tr>
+      </table>
+      <ul>
+        <li>The gate is an edge proxy (<code>dashboard/middleware.ts</code>) wrapping Auth.js. Unauthenticated → 302 <code>/signin</code>.</li>
+        <li>No secrets are exposed to the client — env vars are server-only.</li>
+        <li>Vercel preview deployments are additionally behind Vercel's own SSO.</li>
+      </ul>
+      <div class="callout warn">
+        <div class="label">⚠ Hardening recommendation</div>
+        Make the gate <b>fail-closed</b>: if <code>AUTH_SECRET</code> is absent it
+        should deny (500/redirect), not serve. Today a missing secret fails open.
+        Also a minor: <code>middleware.ts</code> → <code>proxy.ts</code> (Next 16
+        deprecation; cosmetic, still runs).
+      </div>
+
+      <!-- 07 -->
+      <h2 id="rollout"><span class="num">07</span>Company-wide rollout</h2>
+      <table>
+        <tr><th>Phase</th><th>Action</th></tr>
+        <tr><td><b>A · Own it</b></td><td>Move repo → <code>Sanjow-Ventures/wasabi</code>; repoint Vercel; set Production Branch = <code>develop</code>; confirm env/secret ownership.</td></tr>
+        <tr><td><b>B · First storefront (TU)</b></td><td>Drop in the middleware from <code>integration/storefronts/</code> (TU reference ready), point it at <code>/api/decide</code>, turn the TU VWO campaign off → first real assignments → first live verdict (proven on the £19-vs-£39 billing test).</td></tr>
+        <tr><td><b>C · Roll out</b></td><td>Repeat for AC / AS / PDF / … (templates exist per storefront).</td></tr>
+        <tr><td><b>D · Retire VWO</b></td><td>Once coverage is proven, cancel VWO → ~€6k/yr saved.</td></tr>
+      </table>
+      <p class="muted">
+        Experiment ideas flow through YouTrack: tag a ticket <code>experiment</code>
+        → it appears in <code>/backlog</code> → "+ Test" prefills a new experiment
+        (business, name, theme slug) in one click.
+      </p>
+
+      <!-- 08 -->
+      <h2 id="ops"><span class="num">08</span>Operations</h2>
+      <table>
+        <tr><th>Task</th><th>How</th></tr>
+        <tr><td>Deploy</td><td>Push to <code>develop</code> → Vercel preview. Production via <code>vercel --prod</code> (or set Production Branch = <code>develop</code> for auto-deploy).</td></tr>
+        <tr><td>Reseed sample data</td><td>Gated <code>/admin/reseed</code> (type <code>RESEED</code> to arm), or <code>npm run reseed</code> locally.</td></tr>
+        <tr><td>Manage the backlog</td><td>Tag YouTrack tickets <code>experiment</code> (shared saved search "Experiments (Wasabi)").</td></tr>
+        <tr><td>Logs / monitoring</td><td>Vercel dashboard → project <code>wasabi</code> → Logs / Deployments.</td></tr>
+        <tr><td>Env / secrets</td><td>Vercel → Settings → Environment Variables (Production + Preview).</td></tr>
+      </table>
+
+      <!-- 09 -->
+      <h2 id="checklist"><span class="num">09</span>CTO checklist &amp; open decisions</h2>
+      <ul class="check">
+        <li>Move repo <code>GambitIsHere/wasabi</code> → <code>Sanjow-Ventures/wasabi</code> + repoint Vercel.</li>
+        <li>Set Vercel <b>Production Branch = develop</b> (removes the manual <code>vercel --prod</code> step).</li>
+        <li>Confirm ownership: Google OAuth app · Metabase API key · Neon project · Vercel project.</li>
+        <li>Harden the gate to <b>fail-closed</b> + set <code>AUTH_*</code> on Preview.</li>
+        <li>Approve wiring the <b>TU</b> storefront → first real traffic.</li>
+        <li><i>Later:</i> rename <code>middleware.ts</code> → <code>proxy.ts</code> (Next 16).</li>
+      </ul>
+      <div class="card">
+        <p style="margin: 0">
+          <b>What I need from your team:</b> an owner for the Google OAuth app +
+          Metabase key, the go-ahead to move the repo into the org, and sign-off
+          to wire the first storefront.
+        </p>
+      </div>
+
+      <!-- 10 -->
+      <h2 id="refs"><span class="num">10</span>References</h2>
+      <p class="muted">In the repo (<code>github.com/GambitIsHere/wasabi</code>):</p>
+      <ul>
+        <li><code>docs/ONE-PAGER.md</code> — the management decision memo.</li>
+        <li><code>docs/ARCHITECTURE.md</code> — the built system in detail.</li>
+        <li><code>docs/NEXT-STEPS.md</code> — the living roadmap.</li>
+        <li><code>integration/README.md</code> — storefront wiring guide.</li>
+        <li><code>deploy/README.md</code> — self-host runbook (alternative).</li>
+      </ul>
+    </main>
+
+    <footer>
+      <span>Wasabi · PostHog-compatible assignment · payment-P&amp;L verdicts</span>
+      <span>Sanjow Ventures · <span class="opt">Optimiser.Pro</span></span>
+    </footer>
+  </body>
+</html>
