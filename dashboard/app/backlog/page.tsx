@@ -1,6 +1,8 @@
 import Link from "next/link";
 import {
   getExperimentBacklog,
+  suggestedName,
+  suggestedThemeSlug,
   type Backlog,
   type BacklogTicket,
 } from "@/lib/backlog";
@@ -113,6 +115,16 @@ export default async function BacklogPage({
 }
 
 function TicketRow({ t }: { t: BacklogTicket }) {
+  const theme = suggestedThemeSlug(`${t.summary} ${t.description}`);
+  const newHref = {
+    pathname: "/experiments/new",
+    query: {
+      business: t.business,
+      name: suggestedName(t.summary),
+      ticket: t.id,
+      ...(theme ? { theme } : {}),
+    },
+  };
   return (
     <li
       className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-bg/40"
@@ -151,9 +163,9 @@ function TicketRow({ t }: { t: BacklogTicket }) {
       </div>
       <div className="flex shrink-0 items-center gap-3 self-center text-xs font-medium">
         <Link
-          href="/experiments/new"
+          href={newHref}
           className="text-faint transition-colors hover:text-accent"
-          title="Spin up a Wasabi experiment from this ticket"
+          title="Spin up a Wasabi experiment prefilled from this ticket"
         >
           + Test
         </Link>

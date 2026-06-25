@@ -13,6 +13,7 @@
 // once the tag is backfilled. Everything downstream is unchanged.
 // ============================================================================
 import { searchIssues, YT_CONFIGURED, type YouTrackIssue } from "@/lib/youtrack";
+import { THEME_SLUG_RE } from "@/lib/mgmt";
 
 export interface BacklogTicket extends YouTrackIssue {
   /** Wasabi business label derived from the YouTrack project. */
@@ -73,6 +74,43 @@ function businessFor(issue: YouTrackIssue): string {
     businessFromSummary(issue.summary) ??
     `${issue.projectName || issue.project} (cross-business)`
   );
+}
+
+// ---------------------------------------------------------------------------
+// Prefill helpers — turn a backlog ticket into seed values for the
+// /experiments/new form (carried as query params on the "+ Test" link).
+// Pure (no I/O), so they're trivially testable and safe to import anywhere.
+// ---------------------------------------------------------------------------
+
+/** A clean experiment-name suggestion: the summary minus a leading business prefix. */
+export function suggestedName(summary: string): string {
+  return summary
+    .replace(
+      /^\s*(TU|TUM|AC|AS|PDF|WePDF|GT|RLW|RL|AL|OV|GC|OS|IQ|DL|AICHAT)\s*[-|:–]\s*/i,
+      "",
+    )
+    .trim()
+    .slice(0, 120);
+}
+
+/**
+ * Best-effort `?theme=` slug from ticket text (summary + description); null if
+ * none is confidently found. Looks for an explicit `theme=`/`theme:` cue first,
+ * then a slug-shaped token (`xx_…`) from the known business prefixes. Always
+ * validated against THEME_SLUG_RE so an invalid guess never reaches the form.
+ */
+export function suggestedThemeSlug(text: string): string | null {
+  const explicit = text.match(/theme\s*[=:]\s*([a-z][a-z0-9_-]{1,49})/i);
+  if (explicit && THEME_SLUG_RE.test(explicit[1].toLowerCase())) {
+    return explicit[1].toLowerCase();
+  }
+  const shaped = text.match(
+    /\b((?:tu|ac|as|pdf|rl|rlw|gt|gc|al|ov)_[a-z0-9_]{1,46})\b/i,
+  );
+  if (shaped && THEME_SLUG_RE.test(shaped[1].toLowerCase())) {
+    return shaped[1].toLowerCase();
+  }
+  return null;
 }
 
 // Keyword terms run as separate full-text queries, then merged + deduped —

@@ -4,24 +4,55 @@ import {
   BUSINESSES,
   GOAL_METRICS,
   THEME_SLUGS,
+  THEME_SLUG_RE,
   type ExperimentInput,
 } from "@/lib/mgmt";
 
 export const dynamic = "force-dynamic";
 
-/** A blank-but-valid-shaped starter: two arms, control + challenger, 50/50. */
-const BLANK: ExperimentInput = {
-  name: "",
-  business: BUSINESSES[0],
-  goalMetric: GOAL_METRICS[0],
-  startDate: new Date().toISOString().slice(0, 10),
-  variants: [
-    { key: "control", rolloutPercentage: 50, themeSlug: THEME_SLUGS[0], isControl: true },
-    { key: "variant_1", rolloutPercentage: 50, themeSlug: THEME_SLUGS[0], isControl: false },
-  ],
-};
+const VALID_BUSINESS = new Set<string>([...BUSINESSES]);
 
-export default function NewExperimentPage() {
+/**
+ * Build the form's initial values, optionally prefilled from a backlog ticket's
+ * query params (business / name / theme — set by the backlog "+ Test" link).
+ * Invalid or stale params fall back to safe defaults, so a hand-edited URL can
+ * never produce an invalid starting form.
+ */
+function buildInitial(p: {
+  business: string;
+  name: string;
+  theme: string;
+}): ExperimentInput {
+  const business = VALID_BUSINESS.has(p.business) ? p.business : BUSINESSES[0];
+  const theme = THEME_SLUG_RE.test(p.theme) ? p.theme : THEME_SLUGS[0];
+  return {
+    name: p.name.trim().slice(0, 120),
+    business,
+    goalMetric: GOAL_METRICS[0],
+    startDate: new Date().toISOString().slice(0, 10),
+    variants: [
+      { key: "control", rolloutPercentage: 50, themeSlug: theme, isControl: true },
+      { key: "variant_1", rolloutPercentage: 50, themeSlug: theme, isControl: false },
+    ],
+  };
+}
+
+export default async function NewExperimentPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const sp = await searchParams;
+  const str = (v: string | string[] | undefined) =>
+    (Array.isArray(v) ? v[0] : v) ?? "";
+  const initial = buildInitial({
+    business: str(sp.business),
+    name: str(sp.name),
+    theme: str(sp.theme),
+  });
+  const ticket = str(sp.ticket).trim();
+  const ytHost = process.env.YOUTRACK_HOST || "sanjow.youtrack.cloud";
+
   return (
     <div className="space-y-8">
       <div className="space-y-3">
@@ -38,9 +69,20 @@ export default function NewExperimentPage() {
           Configure the arms and the storefront theme each routes to. The key is
           slugged from the name and becomes the flag the engine assigns on.
         </p>
+        {ticket && (
+          <a
+            href={`https://${ytHost}/issue/${ticket}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-full border border-info/30 bg-info/10 px-2.5 py-0.5 font-mono text-[11px] text-info transition-colors hover:border-info/50"
+            title="The YouTrack ticket this experiment was prefilled from"
+          >
+            prefilled from {ticket} <span aria-hidden="true">↗</span>
+          </a>
+        )}
       </div>
 
-      <ExperimentForm mode="create" initial={BLANK} />
+      <ExperimentForm mode="create" initial={initial} />
     </div>
   );
 }
