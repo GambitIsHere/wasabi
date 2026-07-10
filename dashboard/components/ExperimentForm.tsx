@@ -235,7 +235,7 @@ export function ExperimentForm({ mode, initial }: Props) {
           {drafts.map((d, i) => (
             <div
               key={i}
-              className="grid grid-cols-[auto_1fr_auto] items-center gap-3 px-5 py-3 sm:grid-cols-[auto_1.2fr_5rem_1fr_auto]"
+              className="grid grid-cols-1 gap-2 px-5 py-3 sm:grid-cols-[auto_1.2fr_5rem_1fr_auto] sm:items-center sm:gap-3"
             >
               {/* control radio */}
               <label className="flex items-center gap-1.5 text-[11px] text-muted">
@@ -246,6 +246,7 @@ export function ExperimentForm({ mode, initial }: Props) {
                   onChange={() => setControl(i)}
                   className="size-3.5 accent-[var(--color-info)]"
                 />
+                <span className="sm:hidden">Control</span>
                 <span className="hidden sm:inline">ctrl</span>
               </label>
 
@@ -302,7 +303,7 @@ export function ExperimentForm({ mode, initial }: Props) {
                     ? "An experiment needs at least 2 variants"
                     : "Remove variant"
                 }
-                className="rounded-md border border-line-strong bg-bg px-2 py-1 text-xs text-faint transition-colors hover:border-bad/40 hover:text-bad disabled:cursor-not-allowed disabled:opacity-40"
+                className="justify-self-end rounded-md border border-line-strong bg-bg px-2 py-1 text-xs text-faint transition-colors hover:border-bad/40 hover:text-bad disabled:cursor-not-allowed disabled:opacity-40 sm:justify-self-auto"
                 aria-label={`Remove variant ${d.key}`}
               >
                 ✕

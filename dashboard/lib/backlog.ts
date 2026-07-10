@@ -172,7 +172,11 @@ export async function getExperimentBacklog(
     source = "tag-query";
     const alreadyScoped = /#(unresolved|resolved)|\bstate\s*:/i.test(envQuery);
     query = openOnly && !alreadyScoped ? `${envQuery} #Unresolved` : envQuery;
-    tickets = await searchIssues(query, { top: 200 });
+    tickets = await searchIssues(query, { top: 200 }).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[backlog] tag-query failed:", message);
+      return [] as YouTrackIssue[];
+    });
   } else {
     // Heuristic net: one query per term, merge + dedupe + de-noise.
     source = "heuristic";
