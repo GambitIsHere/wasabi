@@ -62,10 +62,37 @@ export function LiveResults({ experimentKey }: Props) {
     };
   }, [experimentKey]);
 
-  if (state.status === "loading") return <ResultsSkeleton />;
-  if (state.status === "error") return <ResultsError message={state.message} />;
-  if (state.status === "empty") return <ResultsEmpty reason={state.reason} />;
-  return <ResultsReady rows={state.rows} verdict={state.verdict} />;
+  // A concise, screen-reader-only status line carries the state transition
+  // (loading → ready / empty). The results themselves stay OUT of the live
+  // region so a screen reader announces "Results loaded", not the entire P&L
+  // table read aloud. Errors are announced by ResultsError's own role="alert"
+  // (assertive), so the status stays silent for that state to avoid a double
+  // announcement.
+  const statusText =
+    state.status === "loading"
+      ? "Loading results…"
+      : state.status === "empty"
+        ? "No results available."
+        : state.status === "ready"
+          ? "Results loaded."
+          : "";
+
+  return (
+    <div aria-busy={state.status === "loading"}>
+      <p className="sr-only" role="status">
+        {statusText}
+      </p>
+      {state.status === "loading" ? (
+        <ResultsSkeleton />
+      ) : state.status === "error" ? (
+        <ResultsError message={state.message} />
+      ) : state.status === "empty" ? (
+        <ResultsEmpty reason={state.reason} />
+      ) : (
+        <ResultsReady rows={state.rows} verdict={state.verdict} />
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -278,14 +305,14 @@ function PerVariantTable({
         <table className="w-full min-w-[760px] text-sm">
           <thead>
             <tr className="text-left font-mono text-[11px] uppercase tracking-wider text-faint">
-              <th className="px-5 py-2.5 font-medium">Variant</th>
-              {hasAds && <th className="px-3 py-2.5 text-right font-medium">Clicks</th>}
-              <th className="px-3 py-2.5 text-right font-medium">Apps</th>
-              <th className="px-3 py-2.5 text-right font-medium">Auth %</th>
-              <th className="px-3 py-2.5 text-right font-medium">Rebill %</th>
-              <th className="px-3 py-2.5 text-right font-medium">Net rev (GBP)</th>
-              <th className="px-3 py-2.5 text-right font-medium">Break-even CAC</th>
-              <th className="px-5 py-2.5 text-right font-medium">Rev / acq</th>
+              <th scope="col" className="px-5 py-2.5 font-medium">Variant</th>
+              {hasAds && <th scope="col" className="px-3 py-2.5 text-right font-medium">Clicks</th>}
+              <th scope="col" className="px-3 py-2.5 text-right font-medium">Apps</th>
+              <th scope="col" className="px-3 py-2.5 text-right font-medium">Auth %</th>
+              <th scope="col" className="px-3 py-2.5 text-right font-medium">Rebill %</th>
+              <th scope="col" className="px-3 py-2.5 text-right font-medium">Net rev (GBP)</th>
+              <th scope="col" className="px-3 py-2.5 text-right font-medium">Break-even CAC</th>
+              <th scope="col" className="px-5 py-2.5 text-right font-medium">Rev / acq</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -349,12 +376,12 @@ function SignificanceTable({ significance }: { significance: SignificanceTest[] 
         <table className="w-full min-w-[640px] text-sm">
           <thead>
             <tr className="text-left font-mono text-[11px] uppercase tracking-wider text-faint">
-              <th className="px-5 py-2.5 font-medium">Metric · variant</th>
-              <th className="px-3 py-2.5 text-right font-medium">Control</th>
-              <th className="px-3 py-2.5 text-right font-medium">Variant</th>
-              <th className="px-3 py-2.5 text-right font-medium">Δ pp</th>
-              <th className="px-3 py-2.5 text-right font-medium">z</th>
-              <th className="px-5 py-2.5 text-right font-medium">Verdict</th>
+              <th scope="col" className="px-5 py-2.5 font-medium">Metric · variant</th>
+              <th scope="col" className="px-3 py-2.5 text-right font-medium">Control</th>
+              <th scope="col" className="px-3 py-2.5 text-right font-medium">Variant</th>
+              <th scope="col" className="px-3 py-2.5 text-right font-medium">Δ pp</th>
+              <th scope="col" className="px-3 py-2.5 text-right font-medium">z</th>
+              <th scope="col" className="px-5 py-2.5 text-right font-medium">Verdict</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -495,7 +522,7 @@ function ResultsEmpty({ reason }: { reason: string }) {
 
 function ResultsError({ message }: { message: string }) {
   return (
-    <div className="rounded-xl border border-bad/30 bg-bad/5 px-5 py-6 text-center">
+    <div role="alert" className="rounded-xl border border-bad/30 bg-bad/5 px-5 py-6 text-center">
       <h3 className="text-sm font-semibold text-bad">Couldn&apos;t load results</h3>
       <p className="mt-1.5 font-mono text-xs text-bad/80">{message}</p>
     </div>

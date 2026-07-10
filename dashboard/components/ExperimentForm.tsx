@@ -9,7 +9,7 @@
 // validation the server runs (lib/mgmt.validateInput) passes. On success it
 // redirects to the experiment detail; on a server error it shows it inline.
 // ============================================================================
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   BUSINESSES,
@@ -67,6 +67,24 @@ export function ExperimentForm({ mode, initial }: Props) {
   const [description, setDescription] = useState(initial.description ?? "");
   const [drafts, setDrafts] = useState<VariantDraft[]>(toDrafts(initial.variants));
 
+  // Focus management for add/remove variant rows — keeps keyboard focus from
+  // getting stranded when the row list changes shape.
+  const rowsRef = useRef<HTMLDivElement>(null);
+  const addBtnRef = useRef<HTMLButtonElement>(null);
+  const pendingFocus = useRef<"add" | "remove" | null>(null);
+
+  useEffect(() => {
+    const intent = pendingFocus.current;
+    if (!intent) return;
+    pendingFocus.current = null;
+    if (intent === "add") {
+      const keys = rowsRef.current?.querySelectorAll<HTMLInputElement>("[data-role='variant-key']");
+      keys?.[keys.length - 1]?.focus(); // focus the newly-added row's key input
+    } else {
+      addBtnRef.current?.focus(); // safe target after a removal
+    }
+  }, [drafts.length]);
+
   // On create the key tracks the name (slug); on edit it's immutable.
   const resolvedKey =
     mode === "edit" ? (initial.key ?? "") : slugify(name) || "—";
@@ -95,6 +113,7 @@ export function ExperimentForm({ mode, initial }: Props) {
     setDrafts((rows) => rows.map((r, idx) => ({ ...r, isControl: idx === i })));
   }
   function addRow() {
+    pendingFocus.current = "add";
     setDrafts((rows) => [
       ...rows,
       {
@@ -106,6 +125,7 @@ export function ExperimentForm({ mode, initial }: Props) {
     ]);
   }
   function removeRow(i: number) {
+    if (drafts.length > 2) pendingFocus.current = "remove";
     setDrafts((rows) => {
       if (rows.length <= 2) return rows; // keep the ≥2 invariant
       const next = rows.filter((_, idx) => idx !== i);
@@ -231,7 +251,7 @@ export function ExperimentForm({ mode, initial }: Props) {
           <SplitBadge total={total} ok={totalOk} />
         </header>
 
-        <div className="divide-y divide-line">
+        <div ref={rowsRef} className="divide-y divide-line">
           {drafts.map((d, i) => (
             <div
               key={i}
@@ -244,6 +264,7 @@ export function ExperimentForm({ mode, initial }: Props) {
                   name="control"
                   checked={d.isControl}
                   onChange={() => setControl(i)}
+                  aria-label={`Use variant ${d.key} as control`}
                   className="size-3.5 accent-[var(--color-info)]"
                 />
                 <span className="sm:hidden">Control</span>
@@ -258,6 +279,8 @@ export function ExperimentForm({ mode, initial }: Props) {
                 placeholder="variant key"
                 spellCheck={false}
                 autoComplete="off"
+                data-role="variant-key"
+                aria-label={`Variant ${i + 1} key`}
                 className="rounded-md border border-line-strong bg-bg px-2.5 py-1.5 font-mono text-xs text-fg placeholder:text-faint focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
               />
 
@@ -269,6 +292,7 @@ export function ExperimentForm({ mode, initial }: Props) {
                   max={100}
                   value={d.rollout}
                   onChange={(e) => updateRow(i, { rollout: e.target.value })}
+                  aria-label={`Variant ${d.key} traffic split percentage`}
                   className="w-full rounded-md border border-line-strong bg-bg px-2.5 py-1.5 pr-6 text-right font-mono text-xs tabular-nums text-fg focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
                 />
                 <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-faint">
@@ -323,6 +347,7 @@ export function ExperimentForm({ mode, initial }: Props) {
         <div className="border-t border-line px-5 py-3">
           <button
             type="button"
+            ref={addBtnRef}
             onClick={addRow}
             className="rounded-lg border border-line-strong bg-bg px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent/40 hover:text-accent"
           >
@@ -333,16 +358,23 @@ export function ExperimentForm({ mode, initial }: Props) {
 
       {/* --- Errors + submit --- */}
       <div className="space-y-3">
-        {validationError && (
-          <p className="rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn">
-            {validationError}
-          </p>
-        )}
-        {serverError && (
-          <p className="rounded-lg border border-bad/30 bg-bad/10 px-3 py-2 text-sm text-bad">
-            {serverError}
-          </p>
-        )}
+        {/* Only the errors live in the announced region — not the submit row,
+            whose "Saving…" relabel would otherwise be read out on every submit. */}
+        <div className="space-y-3 empty:hidden" aria-live="polite">
+          {validationError && (
+            <p className="rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn">
+              {validationError}
+            </p>
+          )}
+          {serverError && (
+            <p
+              role="alert"
+              className="rounded-lg border border-bad/30 bg-bad/10 px-3 py-2 text-sm text-bad"
+            >
+              {serverError}
+            </p>
+          )}
+        </div>
 
         <div className="flex items-center gap-3">
           <button

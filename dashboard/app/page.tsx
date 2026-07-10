@@ -79,7 +79,7 @@ export default async function HomePage() {
                 <div className="relative flex items-start justify-between gap-3">
                   <Link
                     href={`/experiments/${exp.flag.key}`}
-                    className="min-w-0 focus:outline-none"
+                    className="min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-deep"
                   >
                     <h2 className="truncate font-display text-base font-semibold text-fg transition-colors group-hover:text-accent">
                       {exp.name}

@@ -88,6 +88,7 @@ export function AssignmentTester({ experimentKey, sampleId }: Props) {
           placeholder="distinctId, e.g. user_42"
           spellCheck={false}
           autoComplete="off"
+          aria-label="distinctId"
           className="flex-1 rounded-lg border border-line-strong bg-bg px-3 py-2 font-mono text-sm text-fg placeholder:text-faint focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
         />
         <button

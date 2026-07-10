@@ -47,12 +47,13 @@ export function ReseedButton() {
   return (
     <section className="space-y-4 rounded-xl border border-line bg-surface p-5">
       <div className="space-y-2">
-        <label className="block text-xs font-medium text-muted">
+        <label htmlFor="reseed-confirm" className="block text-xs font-medium text-muted">
           Type{" "}
           <code className="font-mono text-xs text-accent/90">{CONFIRM}</code> to
           enable the button:
         </label>
         <input
+          id="reseed-confirm"
           type="text"
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
