@@ -75,9 +75,11 @@ export default async function ExperimentDetailPage({
             </code>
           </span>
         </div>
-        <p className="max-w-3xl text-sm leading-relaxed text-muted">
-          {experiment.description}
-        </p>
+        {experiment.description && (
+          <p className="max-w-3xl text-sm leading-relaxed text-muted">
+            {experiment.description}
+          </p>
+        )}
       </header>
 
       {/* 2. Variants table */}
@@ -90,7 +92,7 @@ export default async function ExperimentDetailPage({
         <div className="overflow-x-auto">
           <table className="w-full min-w-[520px] text-sm">
             <thead>
-              <tr className="text-left font-mono text-[11px] uppercase tracking-wider text-faint">
+              <tr className="text-left font-mono text-[11px] uppercase tracking-wider text-muted">
                 <th className="px-5 py-2.5 font-medium">Variant</th>
                 <th className="px-3 py-2.5 text-right font-medium">Weight</th>
                 <th className="px-5 py-2.5 font-medium">Theme route</th>

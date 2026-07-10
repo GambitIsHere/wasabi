@@ -40,10 +40,7 @@ export default function BacklogError({
           Ref: {error.digest}
         </p>
       )}
-      <button
-        onClick={reset}
-        className="mt-5 rounded-lg bg-accent px-4 py-2 font-display text-sm font-semibold text-bg transition-opacity hover:opacity-90"
-      >
+      <button onClick={reset} className="btn-primary mt-5">
         Try again
       </button>
     </div>

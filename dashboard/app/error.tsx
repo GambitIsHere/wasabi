@@ -41,10 +41,7 @@ export default function Error({
         </p>
       )}
       <div className="mt-5 flex items-center gap-3">
-        <button
-          onClick={reset}
-          className="rounded-lg bg-accent px-4 py-2 font-display text-sm font-semibold text-bg transition-opacity hover:opacity-90"
-        >
+        <button onClick={reset} className="btn-primary">
           Try again
         </button>
         <Link

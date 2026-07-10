@@ -94,7 +94,7 @@ export function AssignmentTester({ experimentKey, sampleId }: Props) {
         <button
           type="submit"
           disabled={view.status === "loading"}
-          className="rounded-lg bg-accent px-4 py-2 font-display text-sm font-semibold text-bg transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="btn-primary"
         >
           {view.status === "loading" ? "Resolving…" : "Resolve"}
         </button>
@@ -124,7 +124,7 @@ export function AssignmentTester({ experimentKey, sampleId }: Props) {
         {view.status === "done" && (
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="rounded-lg border border-line bg-bg px-3 py-2.5">
-              <div className="font-mono text-[10px] font-medium uppercase tracking-wider text-faint">
+              <div className="font-mono text-[10px] font-medium uppercase tracking-wider text-muted">
                 Variant
               </div>
               <div className="mt-0.5 font-mono text-sm font-semibold text-fg">
@@ -138,7 +138,7 @@ export function AssignmentTester({ experimentKey, sampleId }: Props) {
               </div>
             </div>
             <div className="rounded-lg border border-line bg-bg px-3 py-2.5">
-              <div className="font-mono text-[10px] font-medium uppercase tracking-wider text-faint">
+              <div className="font-mono text-[10px] font-medium uppercase tracking-wider text-muted">
                 Routes to theme
               </div>
               <div className="mt-0.5 font-mono text-sm font-semibold text-fg">

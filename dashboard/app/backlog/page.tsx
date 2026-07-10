@@ -185,7 +185,7 @@ function TicketRow({ t }: { t: BacklogTicket }) {
 
 function TicketStatePill({ resolved }: { resolved: boolean }) {
   return resolved ? (
-    <span className="mt-0.5 inline-flex shrink-0 items-center rounded-full border border-line-strong bg-bg px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-faint">
+    <span className="mt-0.5 inline-flex shrink-0 items-center rounded-full border border-line-strong bg-bg px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
       Done
     </span>
   ) : (

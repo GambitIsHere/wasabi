@@ -11,7 +11,7 @@ export function StatusPill({ active }: { active: boolean }) {
       Active
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-surface px-2.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider text-faint">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-surface px-2.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider text-muted">
       <span className="size-1.5 rounded-full bg-faint" aria-hidden="true" />
       Paused
     </span>

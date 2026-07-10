@@ -39,10 +39,13 @@ export function SiteNav() {
       })}
       <a
         href="/api/flags"
+        target="_blank"
+        rel="noopener noreferrer"
         className="rounded-md px-3 py-1.5 font-mono text-xs text-faint transition-colors hover:text-accent"
         title="PostHog-compatible feature-flag payload — the public wire shape storefronts read"
       >
-        /api/flags
+        /api/flags <span aria-hidden="true">↗</span>
+        <span className="sr-only">(opens in new tab)</span>
       </a>
     </nav>
   );

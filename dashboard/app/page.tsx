@@ -31,10 +31,7 @@ export default async function HomePage() {
               Every test, one <span className="serif-accent">verdict</span>.
             </h1>
           </div>
-          <Link
-            href="/experiments/new"
-            className="rounded-lg bg-accent px-4 py-2 font-display text-sm font-semibold text-bg transition-all duration-200 ease-expo hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-8px_rgba(0,229,160,0.5)]"
-          >
+          <Link href="/experiments/new" className="btn-primary">
             + New experiment
           </Link>
         </div>
@@ -66,7 +63,7 @@ export default async function HomePage() {
             return (
               <article
                 key={exp.flag.key}
-                className="group relative flex flex-col overflow-hidden rounded-xl border border-line bg-bg-deep p-5 transition-all duration-300 ease-expo hover:-translate-y-0.5 hover:border-accent hover:bg-surface"
+                className="group relative flex flex-col overflow-hidden rounded-xl border border-line bg-bg-deep p-5 transition-all duration-300 ease-expo hover:-translate-y-0.5 hover:border-accent hover:bg-surface-hover"
               >
                 {/* Oversized faded index — editorial signature. */}
                 <span
@@ -97,7 +94,7 @@ export default async function HomePage() {
 
                 {/* Traffic split */}
                 <div className="relative mt-4">
-                  <div className="mb-1.5 flex items-center justify-between font-mono text-[10px] font-medium uppercase tracking-wider text-faint">
+                  <div className="mb-1.5 flex items-center justify-between font-mono text-[10px] font-medium uppercase tracking-wider text-muted">
                     <span>Traffic split</span>
                     <span className="text-muted">
                       {exp.flag.rolloutPercentage}% rollout
@@ -193,10 +190,7 @@ function EmptyState() {
         Create your first experiment to start assigning variants and measuring
         the payment-P&amp;L verdict.
       </p>
-      <Link
-        href="/experiments/new"
-        className="mt-5 rounded-lg bg-accent px-4 py-2 font-display text-sm font-semibold text-bg transition-all duration-200 ease-expo hover:-translate-y-0.5"
-      >
+      <Link href="/experiments/new" className="btn-primary mt-5">
         + New experiment
       </Link>
     </div>

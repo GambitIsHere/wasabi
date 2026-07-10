@@ -168,7 +168,7 @@ export function ExperimentForm({ mode, initial }: Props) {
               placeholder="e.g. Top-Up Billing UK"
               className="rounded-lg border border-line-strong bg-bg px-3 py-2 text-sm text-fg placeholder:text-faint focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
             />
-            <span className="text-[11px] text-faint">
+            <span className="text-[11px] text-muted">
               Key:{" "}
               <code className="font-mono text-accent/90">{resolvedKey}</code>
               {mode === "edit" && (
@@ -182,7 +182,7 @@ export function ExperimentForm({ mode, initial }: Props) {
               <span className="text-xs font-medium text-muted">Description</span>
               <span
                 className={`font-mono text-[10px] tabular-nums ${
-                  description.length > DESCRIPTION_MAX ? "text-bad" : "text-faint"
+                  description.length > DESCRIPTION_MAX ? "text-bad" : "text-muted"
                 }`}
               >
                 {description.length} / {DESCRIPTION_MAX}
@@ -380,7 +380,7 @@ export function ExperimentForm({ mode, initial }: Props) {
           <button
             type="submit"
             disabled={!canSubmit}
-            className="rounded-lg bg-accent px-5 py-2.5 font-display text-sm font-semibold text-bg transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            className="btn-primary px-5 py-2.5"
           >
             {pending
               ? "Saving…"

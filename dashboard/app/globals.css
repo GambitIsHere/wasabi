@@ -224,6 +224,37 @@ body {
   box-shadow: 0 0 0 1px rgba(0, 229, 160, 0.4), 0 0 24px rgba(0, 229, 160, 0.15);
 }
 
+@layer components {
+  /* Primary CTA — one token-driven button. Background AND hover glow read from
+     --color-accent, so both flip mint→emerald in light mode (no hardcoded mint). */
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    border-radius: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--color-accent);
+    color: var(--color-bg);
+    font-family: var(--font-display);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 600;
+    transition:
+      transform 0.2s var(--ease-expo),
+      box-shadow 0.2s var(--ease-expo),
+      opacity 0.2s var(--ease-expo);
+  }
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--color-accent) 55%, transparent);
+  }
+  .btn-primary:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Keyframes
 --------------------------------------------------------------------------- */

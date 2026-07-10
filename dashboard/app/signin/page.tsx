@@ -38,15 +38,12 @@ export default async function SignInPage({
             await signIn("google", { redirectTo: callbackUrl || "/" });
           }}
         >
-          <button
-            type="submit"
-            className="w-full rounded-lg bg-accent px-4 py-3 font-display text-sm font-semibold text-bg transition-all duration-200 ease-expo hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-8px_rgba(0,229,160,0.5)]"
-          >
+          <button type="submit" className="btn-primary w-full py-3">
             Continue with Google
           </button>
         </form>
 
-        <p className="text-center font-mono text-[10px] uppercase tracking-wider text-faint">
+        <p className="text-center font-mono text-[10px] uppercase tracking-wider text-muted">
           You&apos;ll be redirected to Google to authenticate.
         </p>
       </div>
@@ -73,7 +70,7 @@ function SignInError({
   return (
     <div
       role="alert"
-      className="rounded-lg border border-pink/30 bg-pink/10 px-4 py-3 text-sm text-pink"
+      className="rounded-lg border border-bad/30 bg-bad/10 px-4 py-3 text-sm text-bad"
     >
       {message}
     </div>

@@ -198,7 +198,7 @@ function VariantFunnel({ row, hasAds }: { row: VariantRow; hasAds: boolean }) {
       <div className="mb-3 flex items-center gap-2">
         <span className="font-mono text-xs font-semibold text-fg">{row.variant}</span>
         {row.isControl && <ControlBadge />}
-        <code className="ml-auto font-mono text-[10px] text-faint">{row.themeSlug}</code>
+        <code className="ml-auto font-mono text-[10px] text-muted">{row.themeSlug}</code>
       </div>
       <div className="space-y-2">
         {stages.map((s, i) => (
@@ -304,7 +304,7 @@ function PerVariantTable({
       <div className="overflow-x-auto">
         <table className="w-full min-w-[760px] text-sm">
           <thead>
-            <tr className="text-left font-mono text-[11px] uppercase tracking-wider text-faint">
+            <tr className="text-left font-mono text-[11px] uppercase tracking-wider text-muted">
               <th scope="col" className="px-5 py-2.5 font-medium">Variant</th>
               {hasAds && <th scope="col" className="px-3 py-2.5 text-right font-medium">Clicks</th>}
               <th scope="col" className="px-3 py-2.5 text-right font-medium">Apps</th>
@@ -325,7 +325,7 @@ function PerVariantTable({
                       <span className="font-mono text-xs font-semibold">{r.variant}</span>
                       {r.isControl && <ControlBadge />}
                     </div>
-                    <code className="mt-0.5 block font-mono text-[11px] text-faint">
+                    <code className="mt-0.5 block font-mono text-[11px] text-muted">
                       {r.themeSlug}
                     </code>
                   </td>
@@ -375,7 +375,7 @@ function SignificanceTable({ significance }: { significance: SignificanceTest[] 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px] text-sm">
           <thead>
-            <tr className="text-left font-mono text-[11px] uppercase tracking-wider text-faint">
+            <tr className="text-left font-mono text-[11px] uppercase tracking-wider text-muted">
               <th scope="col" className="px-5 py-2.5 font-medium">Metric · variant</th>
               <th scope="col" className="px-3 py-2.5 text-right font-medium">Control</th>
               <th scope="col" className="px-3 py-2.5 text-right font-medium">Variant</th>
@@ -429,7 +429,7 @@ function WinnersGrid({ verdict, ccy }: { verdict: Verdict; ccy?: string }) {
         const fmt = (n: number) => (isMoney ? money(n, ccy) : pct(n));
         return (
           <div key={w.metric} className="rounded-xl border border-line bg-surface p-4">
-            <div className="font-mono text-[10px] font-medium uppercase tracking-wider text-faint">
+            <div className="font-mono text-[10px] font-medium uppercase tracking-wider text-muted">
               {labels[w.metric]}
             </div>
             <div className="mt-1.5 flex items-baseline gap-2">
@@ -515,7 +515,7 @@ function ResultsEmpty({ reason }: { reason: string }) {
         Metabase. Set <code className="font-mono text-faint">METABASE_URL</code> and{" "}
         <code className="font-mono text-faint">METABASE_API_KEY</code> to enable them.
       </p>
-      <p className="mt-3 font-mono text-[11px] text-faint">{reason}</p>
+      <p className="mt-3 font-mono text-[11px] text-muted">{reason}</p>
     </div>
   );
 }
