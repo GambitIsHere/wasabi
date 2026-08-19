@@ -1,0 +1,52 @@
+# Wasabi — local dev infrastructure (Postgres + a Neon-protocol proxy).
+#
+# Why the proxy: the app talks to Postgres through @neondatabase/serverless
+# (Neon's HTTP driver). Against a plain local Postgres, that driver needs a shim
+# that speaks Neon's wire protocol — this proxy is it. So the whole app, including
+# sql.transaction([...]), runs fully offline against local Postgres.
+#
+#   docker compose -f docker-compose.dev.yml up -d    # start pg + proxy
+#   npm run dev                                        # app on :3000, reads .env.local
+#   docker compose -f docker-compose.dev.yml down      # stop (keeps your data)
+#   docker compose -f docker-compose.dev.yml down -v   # stop + wipe the DB
+#
+# Requires .env.local (see .env.local.example and LOCAL-DEV.md).
+name: wasabi-local
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: wasabi-pg
+    environment:
+      POSTGRES_USER: wasabi
+      POSTGRES_PASSWORD: wasabi
+      POSTGRES_DB: wasabi
+    ports:
+      - "5432:5432"
+    volumes:
+      - wasabi-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wasabi -d wasabi"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  neon-proxy:
+    image: ghcr.io/timowilhelm/local-neon-http-proxy:main
+    container_name: wasabi-neon-proxy
+    environment:
+      # Points at the postgres service on the compose network (not the host).
+      PG_CONNECTION_STRING: postgres://wasabi:wasabi@postgres:5432/wasabi
+    ports:
+      - "4444:4444"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  wasabi-pgdata:
+    # A fixed name so data persists across runs (and reuses the volume you may
+    # have created by hand). `down -v` wipes it; `down` keeps it.
+    name: wasabi-pgdata

@@ -11,7 +11,7 @@
 // Connection: DATABASE_URL (Vercel's Neon integration injects this; falls back to
 // POSTGRES_URL). lib/store.ts is the only consumer.
 // ============================================================================
-import { neon } from "@neondatabase/serverless";
+import { neon, neonConfig } from "@neondatabase/serverless";
 
 // Defence-in-depth: never ship the DB layer to the browser.
 if (typeof window !== "undefined") {
@@ -36,7 +36,16 @@ let client: ReturnType<typeof neon> | null = null;
 
 /** The Neon SQL tagged-template client. Use as: `const sql = getSql(); await sql\`…\`;` */
 export function getSql(): ReturnType<typeof neon> {
-  return (client ??= neon(connectionString()));
+  if (client) return client;
+  // Local dev only: point the Neon HTTP driver at a local Neon-protocol proxy
+  // (docker) that fronts a Postgres container, so the whole app — including
+  // sql.transaction([...]) — runs fully offline. Guarded by USE_LOCAL_PG; prod
+  // is untouched and hits Neon cloud directly.
+  if (process.env.USE_LOCAL_PG === "1") {
+    neonConfig.fetchEndpoint =
+      process.env.NEON_LOCAL_PROXY ?? "http://localhost:4444/sql";
+  }
+  return (client = neon(connectionString()));
 }
 
 // Schema creation is idempotent (CREATE TABLE IF NOT EXISTS) and memoised per
