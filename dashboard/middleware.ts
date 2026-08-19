@@ -31,7 +31,7 @@ function isPublic(pathname: string): boolean {
   );
 }
 
-export default auth((req) => {
+const gate = auth((req) => {
   const { pathname, search } = req.nextUrl;
   if (isPublic(pathname)) return;
   if (req.auth) return; // signed in → continue
@@ -40,6 +40,12 @@ export default auth((req) => {
   signInUrl.searchParams.set("callbackUrl", pathname + search);
   return Response.redirect(signInUrl);
 });
+
+// Dev-only escape hatch: WASABI_DEV_NO_AUTH=1 skips the SSO gate so the app can
+// run against a local Postgres without Google sign-in. NEVER set in production.
+export default process.env.WASABI_DEV_NO_AUTH === "1"
+  ? () => undefined
+  : gate;
 
 // Run on every route except Next internals + static assets. The public-prefix
 // check inside handles /api/decide + /api/capture + /api/auth + /signin.
