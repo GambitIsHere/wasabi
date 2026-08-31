@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { listArchived, type ArchivedExperiment } from "@/lib/archive";
 import { STATUS, dateRange, int, Uplift } from "@/lib/archive-format";
+import { forwardLinkBySourceId } from "@/lib/tested-elements";
 
 // Reads the archive from the DB on every load — imports land here.
 export const dynamic = "force-dynamic";
@@ -16,6 +17,9 @@ export default async function ArchivePage() {
 
   const winners = experiments.filter((e) => e.status === "winner").length;
   const visitors = experiments.reduce((s, e) => s + e.visitorsTotal, 0);
+
+  // Which runs point forward to the plan — a scheduled re-run, or a candidate.
+  const forward = forwardLinkBySourceId();
 
   return (
     <div className="space-y-8">
@@ -160,6 +164,29 @@ export default async function ArchivePage() {
                       {exp.type}
                     </span>
                   )}
+                  {(() => {
+                    const fwd = exp.sourceId ? forward.get(exp.sourceId) : undefined;
+                    if (!fwd) return null;
+                    const scheduled = fwd.kind === "scheduled";
+                    return (
+                      <Link
+                        href="/roadmap#tested-elements"
+                        title={
+                          scheduled
+                            ? `Re-running as ${fwd.ticket || "a drafted ticket"}: ${fwd.title}`
+                            : `Re-test candidate: ${fwd.proposedTitle}`
+                        }
+                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wide transition-colors ${
+                          scheduled
+                            ? "border-info/30 bg-info/10 text-info hover:border-info/60"
+                            : "border-warn/30 bg-warn/10 text-warn hover:border-warn/60"
+                        }`}
+                      >
+                        <span aria-hidden="true">→</span>
+                        {scheduled ? "on the roadmap" : "re-test candidate"}
+                      </Link>
+                    );
+                  })()}
                 </div>
                 <h2 className="font-display text-lg font-semibold text-fg">
                   <Link
