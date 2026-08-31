@@ -129,4 +129,12 @@ async function doCreateSchema(): Promise<void> {
       PRIMARY KEY (archived_key, key)
     )
   `;
+  // Idempotent migrations for the live payment read (attached from global-api via
+  // Metabase). All nullable — an archived variant carries these only once payment
+  // metrics have been attached; a plain VWO import leaves them null.
+  await sql`ALTER TABLE archived_variant ADD COLUMN IF NOT EXISTS auth_rate REAL`;
+  await sql`ALTER TABLE archived_variant ADD COLUMN IF NOT EXISTS rebill_r1 REAL`;
+  await sql`ALTER TABLE archived_variant ADD COLUMN IF NOT EXISTS rebill_r2 REAL`;
+  await sql`ALTER TABLE archived_variant ADD COLUMN IF NOT EXISTS rebill_r3 REAL`;
+  await sql`ALTER TABLE archived_variant ADD COLUMN IF NOT EXISTS net_rev_per_acquired REAL`;
 }

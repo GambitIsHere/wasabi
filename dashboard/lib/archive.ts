@@ -39,6 +39,18 @@ export interface ArchivedVariantInput {
   improvement?: number | null;
   /** significance / chance-to-beat-control, % (0–100). */
   chanceToBeat?: number | null;
+  // --- Live payment read (attached from global-api via Metabase). All nullable;
+  //     a plain VWO import omits them and they stay null. ---
+  /** First-payment auth rate, % — paid / (paid + failed). */
+  authRate?: number | null;
+  /** Rebill collection rate at cycle 1 (first renewal), %. */
+  rebillR1?: number | null;
+  /** Rebill collection rate at cycle 2, %. */
+  rebillR2?: number | null;
+  /** Rebill collection rate at cycle 3, %. */
+  rebillR3?: number | null;
+  /** Net revenue per acquired customer (GBP) — the "what VWO can't see" number. */
+  netRevPerAcquired?: number | null;
 }
 
 /** The importer contract — what the VWO/Wingify pull maps each campaign to. */
@@ -72,6 +84,12 @@ export interface ArchivedVariant {
   improvement: number | null;
   chanceToBeat: number | null;
   position: number;
+  // Live payment read — null until metrics are attached from global-api.
+  authRate: number | null;
+  rebillR1: number | null;
+  rebillR2: number | null;
+  rebillR3: number | null;
+  netRevPerAcquired: number | null;
 }
 
 export interface ArchivedExperiment {
@@ -132,6 +150,11 @@ interface ArchivedVariantRow {
   improvement: number | null;
   chance_to_beat: number | null;
   position: number;
+  auth_rate: number | null;
+  rebill_r1: number | null;
+  rebill_r2: number | null;
+  rebill_r3: number | null;
+  net_rev_per_acquired: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,6 +169,15 @@ function num(v: unknown, fallback = 0): number {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** Round to `dp` places, but keep null/undefined as null (nullable metrics). */
+function roundOrNull(v: number | null | undefined, dp = 2): number | null {
+  if (v == null) return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  const f = 10 ** dp;
+  return Math.round(n * f) / f;
 }
 
 function normalizeVariants(inputs: ArchivedVariantInput[]): ArchivedVariant[] {
@@ -168,6 +200,11 @@ function normalizeVariants(inputs: ArchivedVariantInput[]): ArchivedVariant[] {
       improvement: v.improvement != null ? round2(num(v.improvement)) : null,
       chanceToBeat: v.chanceToBeat != null ? round2(num(v.chanceToBeat)) : null,
       position: i,
+      authRate: roundOrNull(v.authRate, 1),
+      rebillR1: roundOrNull(v.rebillR1, 1),
+      rebillR2: roundOrNull(v.rebillR2, 1),
+      rebillR3: roundOrNull(v.rebillR3, 1),
+      netRevPerAcquired: roundOrNull(v.netRevPerAcquired, 2),
     };
   });
 
@@ -228,6 +265,11 @@ function toDomain(
       improvement: v.improvement,
       chanceToBeat: v.chance_to_beat,
       position: v.position,
+      authRate: v.auth_rate ?? null,
+      rebillR1: v.rebill_r1 ?? null,
+      rebillR2: v.rebill_r2 ?? null,
+      rebillR3: v.rebill_r3 ?? null,
+      netRevPerAcquired: v.net_rev_per_acquired ?? null,
     })),
   };
 }
@@ -310,10 +352,12 @@ export async function upsertArchived(input: ArchivedInput): Promise<string> {
       (v) =>
         sql`INSERT INTO archived_variant
               (archived_key, key, name, is_control, visitors, conversions,
-               conversion_rate, improvement, chance_to_beat, position)
+               conversion_rate, improvement, chance_to_beat, position,
+               auth_rate, rebill_r1, rebill_r2, rebill_r3, net_rev_per_acquired)
             VALUES
               (${key}, ${v.key}, ${v.name}, ${v.isControl ? 1 : 0}, ${v.visitors}, ${v.conversions},
-               ${v.conversionRate}, ${v.improvement}, ${v.chanceToBeat}, ${v.position})`,
+               ${v.conversionRate}, ${v.improvement}, ${v.chanceToBeat}, ${v.position},
+               ${v.authRate}, ${v.rebillR1}, ${v.rebillR2}, ${v.rebillR3}, ${v.netRevPerAcquired})`,
     ),
   ]);
   return key;
@@ -341,6 +385,52 @@ export async function upsertManyArchived(
     }
   }
   return { imported, failed };
+}
+
+// ---------------------------------------------------------------------------
+// Writes — attach the live payment read onto an already-imported experiment.
+// ---------------------------------------------------------------------------
+
+/** The payment metrics computed for one archived variant (all nullable). */
+export interface VariantPaymentMetrics {
+  /** The archived_variant key to write onto. */
+  key: string;
+  authRate: number | null;
+  rebillR1: number | null;
+  rebillR2: number | null;
+  rebillR3: number | null;
+  netRevPerAcquired: number | null;
+}
+
+/**
+ * Attach payment metrics onto an existing archived experiment's variants —
+ * an in-place UPDATE per variant, so the imported VWO data (visitors,
+ * conversions, uplift) is untouched. Non-matching keys are skipped silently.
+ * Returns the variant keys that were actually written.
+ */
+export async function attachPaymentMetrics(
+  archivedKey: string,
+  metrics: VariantPaymentMetrics[],
+): Promise<string[]> {
+  await createSchema();
+  const sql = getSql();
+  if (metrics.length === 0) return [];
+
+  const statements = metrics.map(
+    (m) =>
+      sql`UPDATE archived_variant
+            SET auth_rate            = ${roundOrNull(m.authRate, 1)},
+                rebill_r1            = ${roundOrNull(m.rebillR1, 1)},
+                rebill_r2            = ${roundOrNull(m.rebillR2, 1)},
+                rebill_r3            = ${roundOrNull(m.rebillR3, 1)},
+                net_rev_per_acquired = ${roundOrNull(m.netRevPerAcquired, 2)}
+          WHERE archived_key = ${archivedKey} AND key = ${m.key}
+          RETURNING key`,
+  );
+  const results = (await sql.transaction(statements)) as unknown as Array<
+    { key: string }[]
+  >;
+  return results.flatMap((rows) => rows.map((r) => r.key));
 }
 
 /** Delete one archived experiment (variants cascade). */

@@ -203,6 +203,96 @@ function VariantChart({
 }
 
 // ---------------------------------------------------------------------------
+// Payment read — the "what VWO can't see" panel. Rendered only when a payment
+// read has been attached (at least one variant has a non-null auth rate). Shows,
+// per variant, the first-payment auth rate, rebill collection at cycles R1/R2/R3
+// and net revenue per acquired customer — all live from global-api via Metabase.
+// ---------------------------------------------------------------------------
+
+function pctCell(v: number | null) {
+  return v == null ? (
+    <span className="text-faint">—</span>
+  ) : (
+    <span className="tabular-nums text-fg">{v.toFixed(1)}%</span>
+  );
+}
+
+function gbpCell(v: number | null) {
+  return v == null ? (
+    <span className="text-faint">—</span>
+  ) : (
+    <span className="tabular-nums text-fg">£{v.toFixed(2)}</span>
+  );
+}
+
+function PaymentRead({
+  variants,
+  winnerVariant,
+}: {
+  variants: ArchivedVariant[];
+  winnerVariant: string | null;
+}) {
+  return (
+    <section className="overflow-hidden rounded-xl border border-line bg-surface">
+      <header className="border-b border-line px-5 py-3">
+        <h2 className="font-display text-sm font-semibold text-fg">
+          Payment read
+        </h2>
+        <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wide text-faint">
+          What VWO can&apos;t see — live from global-api
+        </p>
+      </header>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] text-sm">
+          <thead>
+            <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-wide text-faint">
+              <th className="px-5 py-2 font-medium">Variant</th>
+              <th className="px-3 py-2 text-right font-medium">Auth</th>
+              <th className="px-3 py-2 text-right font-medium">R1</th>
+              <th className="px-3 py-2 text-right font-medium">R2</th>
+              <th className="px-3 py-2 text-right font-medium">R3</th>
+              <th className="px-5 py-2 text-right font-medium">Net £/acq</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {variants.map((v) => {
+              const isWinner =
+                winnerVariant != null && v.key === winnerVariant;
+              return (
+                <tr key={v.key} className={isWinner ? "bg-good/5" : undefined}>
+                  <td className="px-5 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-fg">{v.name}</span>
+                      {v.isControl && (
+                        <span className="rounded bg-bg px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide text-faint">
+                          control
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-right">{pctCell(v.authRate)}</td>
+                  <td className="px-3 py-2.5 text-right">{pctCell(v.rebillR1)}</td>
+                  <td className="px-3 py-2.5 text-right">{pctCell(v.rebillR2)}</td>
+                  <td className="px-3 py-2.5 text-right">{pctCell(v.rebillR3)}</td>
+                  <td className="px-5 py-2.5 text-right">
+                    {gbpCell(v.netRevPerAcquired)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="border-t border-line px-5 py-2.5 text-[11px] leading-relaxed text-faint">
+        Auth is first-payment success. R1–R3 are rebill collection at the 1st,
+        2nd and 3rd renewal cycle. Net £/acq is revenue less refunds and
+        chargebacks, per acquired customer.
+      </p>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Detail page
 // ---------------------------------------------------------------------------
 
@@ -393,6 +483,14 @@ export default async function ArchivedDetailPage({
           </table>
         </div>
       </section>
+
+      {/* 6.5. Payment read — only when a payment read has been attached. */}
+      {exp.variants.some((v) => v.authRate != null) && (
+        <PaymentRead
+          variants={exp.variants}
+          winnerVariant={exp.winnerVariant}
+        />
+      )}
 
       {/* 7. Hypothesis & notes */}
       {(exp.hypothesis || exp.notes) && (
