@@ -73,6 +73,10 @@ export function AssignmentsPanel({
           );
         })}
       </ul>
+      <p className="border-t border-line-whisper px-5 py-2.5 text-[11px] leading-relaxed text-faint">
+        Assignments come from storefront capture (not yet wired); the payment P&amp;L
+        is measured from the payments DB, so money can move while this reads zero.
+      </p>
     </section>
   );
 }

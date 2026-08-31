@@ -165,6 +165,13 @@ function FunnelSection({ rows, hasAds }: { rows: VariantRow[]; hasAds: boolean }
         <p className="mt-0.5 text-xs text-faint">
           {hasAds ? "Ad click" : "App"} → revenue, per variant.
         </p>
+        {hasAds && (
+          <p className="mt-1 text-[11px] leading-relaxed text-faint">
+            Bars scale to the largest step, not a strict funnel — ad clicks come
+            from the ad platform and app-starts from the app database, so a later
+            step can read higher than an earlier one.
+          </p>
+        )}
       </header>
       <div className="grid gap-4 p-5 sm:grid-cols-2">
         {rows.map((r) => (
@@ -191,6 +198,10 @@ function VariantFunnel({ row, hasAds }: { row: VariantRow; hasAds: boolean }) {
     { label: "First-paid", value: row.firstPaid, note: `${pct(row.authRate)} auth` },
     { label: "Rebill", value: row.rebillOk, note: `${pct(row.rebillRate)} rebill` },
   ];
+  // Scale to the LARGEST step, not the top one: ad clicks (ad platform) and
+  // app-starts (app DB) are different sources, so apps can exceed clicks. Scaling
+  // to the top step would then overflow a later bar and read as broken data. The
+  // widest real number is the full bar; every displayed figure stays exact.
   const max = Math.max(1, ...stages.map((s) => s.value));
 
   return (

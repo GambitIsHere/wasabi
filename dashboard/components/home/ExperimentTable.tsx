@@ -7,13 +7,17 @@
 // row navigates to the detail page, with the experiment name as the real,
 // keyboard-focusable link. Payment/verdict columns render "—" when Metabase was
 // unavailable (locally), so the table is correct with or without it.
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Recommendation } from "@/lib/verdict";
 import type { ExperimentRowVM, TrafficSplitArm } from "./types";
 
 type StatusFilter = "all" | "active" | "paused";
+
+// The cockpit is live: COLLECTED TODAY, the feed and today's counts all move as
+// captures/payments land, so we pull fresh server data on this cadence.
+const LIVE_REFRESH_MS = 5000;
 
 // ---------------------------------------------------------------------------
 // Small presentational helpers
@@ -194,6 +198,23 @@ export function ExperimentTable({
   const [query, setQuery] = useState("");
   const [business, setBusiness] = useState("all");
   const [status, setStatus] = useState<StatusFilter>("all");
+  const controlsRef = useRef<HTMLDivElement>(null);
+
+  // Live refresh. router.refresh() re-runs the server component and merges the
+  // fresh RSC payload into THIS already-mounted island — the search/business/
+  // status state above and input focus survive it, because nothing here remounts
+  // and none of that state is lifted to the server. The one moment a merge would
+  // hurt is mid-keystroke: it can reflow the filtered rows under the cursor and,
+  // during the merge, steal focus from the search box — the dropped-keystroke bug.
+  // So a tick is skipped whenever focus is inside the search/filter controls; the
+  // poll resumes the moment the operator clicks away, and catches up then.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (controlsRef.current?.contains(document.activeElement)) return;
+      router.refresh();
+    }, LIVE_REFRESH_MS);
+    return () => clearInterval(id);
+  }, [router]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -215,7 +236,10 @@ export function ExperimentTable({
   return (
     <section aria-label="Experiments" className="space-y-3">
       {/* Search + filters */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <div
+        ref={controlsRef}
+        className="flex flex-col gap-2 sm:flex-row sm:items-center"
+      >
         <div className="relative flex-1">
           <label htmlFor={searchId} className="sr-only">
             Search experiments
