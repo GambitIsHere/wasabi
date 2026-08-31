@@ -24,6 +24,7 @@ const PUBLIC_PREFIXES = [
   "/signin",
   "/handover.html",
   "/icon.svg", // favicon — must load on the sign-in page / logged-out tabs
+  "/apple-icon.png", // iOS home-screen icon — fetchable without auth
 ];
 
 function isPublic(pathname: string): boolean {
