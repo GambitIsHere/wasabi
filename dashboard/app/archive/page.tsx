@@ -109,6 +109,30 @@ export default async function ArchivePage() {
         </section>
       )}
 
+      {/* Coverage caveat — VWO's API returns only running + paused; the survivor set. */}
+      {experiments.length > 0 && (
+        <section className="rounded-xl border border-info/25 bg-info/5 px-5 py-4">
+          <div className="flex items-start gap-3">
+            <span aria-hidden="true" className="mt-0.5 shrink-0 text-info">◑</span>
+            <div className="space-y-1.5 text-sm leading-relaxed">
+              <p className="font-display font-semibold text-info">
+                Coverage — this is 50 of 84 known 2026 campaigns, and it&apos;s the survivor set
+              </p>
+              <p className="text-muted">
+                VWO&apos;s API returns only running and paused campaigns. The other 34
+                (in the 286–369 range) are archived, stopped or draft and can&apos;t be
+                pulled. Campaigns get archived when they&apos;re abandoned or
+                misconfigured, so the invisible third is likely{" "}
+                <span className="text-fg">worse than the visible two</span> — read every
+                count here as a floor. Widening to 2023–26 holds the pattern: 158
+                campaigns since Mar 2024, 8 conclusive (5%). 2026 isn&apos;t an off year,
+                it&apos;s the norm.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Programme-level tracking caveat — the A/A test exposed asymmetric click capture. */}
       {experiments.length > 0 && (
         <section className="rounded-xl border border-warn/30 bg-warn/5 px-5 py-4">
