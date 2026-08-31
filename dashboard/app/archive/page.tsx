@@ -109,6 +109,28 @@ export default async function ArchivePage() {
         </section>
       )}
 
+      {/* Programme-level tracking caveat — the A/A test exposed asymmetric click capture. */}
+      {experiments.length > 0 && (
+        <section className="rounded-xl border border-warn/30 bg-warn/5 px-5 py-4">
+          <div className="flex items-start gap-3">
+            <span aria-hidden="true" className="mt-0.5 shrink-0 text-warn">⚠</span>
+            <div className="space-y-1.5 text-sm leading-relaxed">
+              <p className="font-display font-semibold text-warn">
+                Account-wide tracking caveat — read click metrics with suspicion
+              </p>
+              <p className="text-muted">
+                The A/A test (316) returned a 0.01%-probability gap on a secondary
+                click goal — impossible without asymmetric capture or bucketing, so{" "}
+                <span className="text-fg">every click-tracked metric in the account inherits it</span>.
+                Treat CTA-click and engagement goals as directional only; hang
+                decisions on page-visit conversions until a fresh A/A clears it. GA
+                and GTM are both disabled on the account, so nothing cross-checks VWO.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Error / empty states */}
       {loadError && (
         <div
@@ -181,6 +203,17 @@ export default async function ArchivePage() {
                 </a>
               )}
             </header>
+
+            {exp.insight && (
+              <div className="border-b border-line bg-accent/5 px-5 py-3">
+                <p className="text-sm leading-relaxed text-fg">
+                  <span className="mr-2 font-mono text-[10px] font-semibold uppercase tracking-wide text-accent">
+                    Insight
+                  </span>
+                  {exp.insight}
+                </p>
+              </div>
+            )}
 
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-sm">

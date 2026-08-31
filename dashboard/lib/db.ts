@@ -108,9 +108,12 @@ async function doCreateSchema(): Promise<void> {
       conversions_total INTEGER NOT NULL DEFAULT 0,
       hypothesis        TEXT NOT NULL DEFAULT '',
       notes             TEXT NOT NULL DEFAULT '',
+      insight           TEXT NOT NULL DEFAULT '',
       imported_at       TEXT NOT NULL
     )
   `;
+  // Idempotent migration for archive tables that pre-date the insight column.
+  await sql`ALTER TABLE archived_experiment ADD COLUMN IF NOT EXISTS insight TEXT NOT NULL DEFAULT ''`;
   await sql`
     CREATE TABLE IF NOT EXISTS archived_variant (
       archived_key    TEXT NOT NULL REFERENCES archived_experiment(key) ON DELETE CASCADE,

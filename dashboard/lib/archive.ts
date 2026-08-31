@@ -57,6 +57,8 @@ export interface ArchivedInput {
   winnerVariant?: string | null; // variant key
   hypothesis?: string | null;
   notes?: string | null;
+  /** The forward-looking learning from this test, post analytics audit. */
+  insight?: string | null;
   variants: ArchivedVariantInput[];
 }
 
@@ -89,6 +91,7 @@ export interface ArchivedExperiment {
   conversionsTotal: number;
   hypothesis: string;
   notes: string;
+  insight: string;
   importedAt: string;
   variants: ArchivedVariant[];
 }
@@ -114,6 +117,7 @@ interface ArchivedExperimentRow {
   conversions_total: number;
   hypothesis: string;
   notes: string;
+  insight: string;
   imported_at: string;
 }
 
@@ -212,6 +216,7 @@ function toDomain(
     conversionsTotal: exp.conversions_total,
     hypothesis: exp.hypothesis ?? "",
     notes: exp.notes ?? "",
+    insight: exp.insight ?? "",
     importedAt: exp.imported_at,
     variants: ordered.map((v) => ({
       key: v.key,
@@ -294,13 +299,13 @@ export async function upsertArchived(input: ArchivedInput): Promise<string> {
     sql`INSERT INTO archived_experiment
           (key, name, business, source, source_id, source_url, type, status,
            goal_metric, start_date, end_date, winner_variant,
-           visitors_total, conversions_total, hypothesis, notes, imported_at)
+           visitors_total, conversions_total, hypothesis, notes, insight, imported_at)
         VALUES
           (${key}, ${input.name.trim()}, ${input.business}, ${input.source ?? "vwo"},
            ${input.sourceId ?? null}, ${input.sourceUrl ?? null}, ${input.type ?? null}, ${status},
            ${input.goalMetric ?? null}, ${input.startDate ?? null}, ${input.endDate ?? null},
            ${input.winnerVariant ?? null}, ${visitorsTotal}, ${conversionsTotal},
-           ${(input.hypothesis ?? "").trim()}, ${(input.notes ?? "").trim()}, ${importedAt})`,
+           ${(input.hypothesis ?? "").trim()}, ${(input.notes ?? "").trim()}, ${(input.insight ?? "").trim()}, ${importedAt})`,
     ...variants.map(
       (v) =>
         sql`INSERT INTO archived_variant

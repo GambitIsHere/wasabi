@@ -51,9 +51,9 @@ export const ROADMAP: RoadmapLane[] = [
     repo: "fast-track-ai",
     site: "Exec Pass landing",
     tests: [
-      { ticket: "GP-452", title: "Invert the hero colours", surface: "Landing hero", startWeek: 1, endWeek: 3, status: "live" },
-      { ticket: "GP-564", title: 'Add a "flight number" field on the landing', surface: "Landing form", startWeek: 4, endWeek: 6, status: "prod-review" },
-      { ticket: "GP-565", title: "Ask departure vs arrival (dual-Fast-Track airports)", surface: "Landing form · airport subset", startWeek: 7, endWeek: 10, status: "built", note: "Airport subset — long pole" },
+      { ticket: "GP-452", title: "Invert the hero colours", surface: "Landing hero", startWeek: 1, endWeek: 6, status: "live", note: "Traffic-starved — VWO put it at 369 days to significance; Exec Pass UK can't settle a ~7% effect at this volume. Needs a larger MDE or a higher-traffic property. The lane waits on it." },
+      { ticket: "GP-564", title: 'Add a "flight number" field on the landing', surface: "Landing form", startWeek: 7, endWeek: 8, status: "prod-review", note: "Blocked behind GP-452" },
+      { ticket: "GP-565", title: "Ask departure vs arrival (dual-Fast-Track airports)", surface: "Landing form · airport subset", startWeek: 9, endWeek: 10, status: "built", note: "Airport subset — long pole; waits on GP-452" },
     ],
   },
   {
