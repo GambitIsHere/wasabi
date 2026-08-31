@@ -1,36 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import {
-  Space_Grotesk,
-  Inter,
-  JetBrains_Mono,
-  Instrument_Serif,
-} from "next/font/google";
+import { JetBrains_Mono } from "next/font/google";
 import { SiteNav } from "@/components/SiteNav";
 import "./globals.css";
 
-// Optimiser.Pro type system — Space Grotesk (display) × Inter (body) ×
-// JetBrains Mono (data/labels) × Instrument Serif (editorial italic accent).
-const display = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-space-grotesk",
-  display: "swap",
-});
-const sans = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap",
-});
+// Cockpit type system — a native system-UI sans for everything readable (zero
+// load, operator-tool feel; set as --font-sans in globals.css) and JetBrains
+// Mono, the single webfont, for every key, slug, ID and tabular number.
 const mono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-jetbrains-mono",
-  display: "swap",
-});
-const serif = Instrument_Serif({
-  subsets: ["latin"],
-  weight: "400",
-  style: ["normal", "italic"],
-  variable: "--font-instrument-serif",
   display: "swap",
 });
 
@@ -44,17 +23,10 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html
-      lang="en"
-      className={`${display.variable} ${sans.variable} ${mono.variable} ${serif.variable}`}
-    >
+    <html lang="en" className={mono.variable}>
       <body className="min-h-screen antialiased">
-        {/* Signature aurora hairline. */}
-        <div
-          className="h-0.5 w-full"
-          style={{ background: "var(--grad-aurora)" }}
-          aria-hidden="true"
-        />
+        {/* Flat hairline (Cockpit: no gradients). */}
+        <div className="h-px w-full bg-line" aria-hidden="true" />
         <header className="sticky top-0 z-20 border-b border-line bg-bg/80 backdrop-blur-md">
           <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
             <Link href="/" className="group flex items-center gap-3">

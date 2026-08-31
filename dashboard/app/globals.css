@@ -1,61 +1,65 @@
 @import "tailwindcss";
 
 /* ===========================================================================
-   Wasabi × Optimiser.Pro — "Bold Editorial Tech" design language.
-   Dark-native Midnight theme. Tailwind v4 CSS-first config: theme tokens live
-   in @theme and become utilities (bg-surface, text-muted, border-line,
-   font-display, ease-expo, animate-fade-up, …). Semantic token NAMES are kept
-   stable so existing components recolor without churn.
-   Source: optimiser-pro-design-framework/DESIGN-TOKENS.md
+   Wasabi — "Cockpit" design foundation.
+   Dark-mode-first operator tool (Linear / Vercel density). ONE accent — wasabi
+   green — flat surfaces (no gradients / imagery / shadow-at-rest), hairline
+   borders, system-sans + JetBrains-Mono type with tabular numbers.
+
+   Tailwind v4 CSS-first config: theme tokens live in @theme and become
+   utilities (bg-surface, text-muted, border-line, font-display, …). The token
+   NAMES are kept stable so existing components recolour without churn — only
+   the VALUES changed here.
+   Palette source: design-system/.../tokens/colors.css (Wasabi Cockpit).
 =========================================================================== */
 @theme {
-  /* ---- Surfaces (Midnight) ---- */
-  --color-bg: #050508; /* void — page background */
-  --color-bg-deep: #0a0e1a; /* primary surface */
-  --color-bg-elevated: #1a1f2e; /* active cards */
-  --color-surface: #111827; /* cards & panels */
-  --color-surface-hover: #232938; /* interactive hover */
-  --color-raised: #2d3548; /* tooltips & menus */
+  /* ---- Surfaces (dark ramp: page → wells → cards → hover) ---- */
+  --color-bg: #0a0b0d; /* app background — the deepest layer */
+  --color-bg-deep: #15181d; /* card / panel surface (alias of --surface) */
+  --color-bg-elevated: #111317; /* raised narrative wells, modal backdrop */
+  --color-surface: #15181d; /* default card / table / panel surface */
+  --color-surface-hover: #1b1f26; /* row + card hover */
+  --color-raised: #1b1f26; /* floating menus / tooltip surface */
 
-  /* ---- Borders & structural lines (white alphas) ---- */
+  /* ---- Borders & structural lines ---- */
   --color-line-whisper: rgba(255, 255, 255, 0.04);
-  --color-line: rgba(255, 255, 255, 0.08);
-  --color-line-strong: rgba(255, 255, 255, 0.15);
+  --color-line: #23272f; /* default hairline border + table dividers */
+  --color-line-strong: #2e333d; /* stronger border: inputs, hover card edges */
 
   /* ---- Text ramp ---- */
-  --color-fg: #f1f5f9; /* primary — headlines */
-  --color-muted: #94a3b8; /* secondary — body */
-  --color-faint: #64748b; /* captions, helper */
-  --color-ghost: #475569; /* placeholders, watermark */
+  --color-fg: #e8eaed; /* primary text, numbers, headings */
+  --color-muted: #9aa3af; /* secondary text, body copy, table cells */
+  --color-faint: #6b7280; /* tertiary: captions, labels, placeholders */
+  --color-ghost: #4b5563; /* dimmest: watermark, disabled placeholder */
 
-  /* ---- Primary accents ---- */
-  --color-accent: #00e5a0; /* mint — primary CTA / success / active */
-  --color-accent-soft: #0a9d72; /* darker mint — bar fills */
-  --color-info: #5b8def; /* blue — links / info / secondary */
-  --color-good: #00e5a0; /* mint — positive outcome */
-  --color-warn: #fbbf24; /* amber — warning / keep-running */
-  --color-bad: #ff6b6b; /* red — error / destructive */
+  /* ---- Accent (wasabi green — the one brand color) ---- */
+  --color-accent: #84cc16; /* primary CTA, links-on-hover, winners */
+  --color-accent-soft: #4d7c0f; /* muted accent: split bars, low-emphasis fills */
 
-  /* ---- Extended editorial palette (per-item colour coding) ---- */
-  --color-blue: #5b8def;
-  --color-amber: #fbbf24;
+  /* ---- Semantic (outcome) — meaning only, never decoration ---- */
+  --color-info: #38bdf8; /* neutral callout / control marker */
+  --color-good: #22c55e; /* good outcome */
+  --color-warn: #f59e0b; /* warning / keep-running */
+  --color-bad: #ef4444; /* bad outcome / destructive */
+
+  /* ---- Extended palette (per-item colour coding: variant bars, roadmap) ---- */
+  --color-blue: #60a5fa;
+  --color-amber: #f59e0b;
   --color-violet: #a78bfa; /* AI / premium */
   --color-pink: #f472b6; /* creative / new */
   --color-sky: #38bdf8; /* neutral info */
   --color-orange: #fb923c; /* warmth / urgency */
   --color-green: #4ade80; /* growth */
 
-  /* ---- Fonts (CSS vars provided by next/font in layout.tsx) ---- */
-  --font-display: var(--font-space-grotesk), "Space Grotesk", ui-sans-serif,
-    system-ui, sans-serif;
-  --font-sans: var(--font-inter), "Inter", ui-sans-serif, system-ui,
-    -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* ---- Fonts — system sans (zero load) + JetBrains Mono (via next/font) ---- */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  --font-display: var(--font-sans); /* Cockpit titles: system-sans, semibold, tight tracking */
   --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace,
-    "SF Mono", Menlo, Consolas, monospace;
-  --font-serif: var(--font-instrument-serif), "Instrument Serif", ui-serif,
-    Georgia, serif;
+    "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", serif; /* fallback only; Cockpit uses no serif */
 
-  /* ---- Editorial display sizes (Major Third) ---- */
+  /* ---- Display sizes (kept as-is; Phase 2 owns per-screen layout) ---- */
   --text-hero: 3.052rem;
   --text-hero--line-height: 1.02;
   --text-hero--letter-spacing: -0.03em;
@@ -76,47 +80,57 @@
   --animate-shimmer: shimmer 2s linear infinite;
 }
 
-/* ---- Signature gradients (not theme colours; referenced by utilities) ---- */
+/* ---- Focus ring + retained gradient tokens (flat by design) ---- */
 :root {
-  --grad-aurora: linear-gradient(135deg, #00e5a0, #5b8def);
-  --grad-prism: linear-gradient(135deg, #a78bfa, #f472b6);
-  --grad-signal: linear-gradient(135deg, #00e5a0, #fbbf24);
-  --grad-heat: linear-gradient(135deg, #ff6b6b, #fb923c);
-  --grad-depth: linear-gradient(135deg, #0a0e1a, #1a1f2e);
+  /* Focus ring — accent at ~45% alpha (Cockpit). */
+  --ring: rgba(132, 204, 22, 0.45);
+
+  /* Cockpit is flat: no gradients at rest. These remain defined so nothing
+     404s, but are token-driven now (no stray old-palette hexes) and mostly
+     unused; --grad-aurora is neutralized to a solid accent fill. */
+  --grad-aurora: var(--color-accent);
+  --grad-prism: linear-gradient(135deg, var(--color-violet), var(--color-pink));
+  --grad-signal: linear-gradient(135deg, var(--color-accent), var(--color-warn));
+  --grad-heat: linear-gradient(135deg, var(--color-bad), var(--color-orange));
+  --grad-depth: linear-gradient(
+    135deg,
+    var(--color-bg-elevated),
+    var(--color-surface)
+  );
 }
 
 /* ---------------------------------------------------------------------------
-   Light variant — activates with the OS setting (prefers-color-scheme: light).
-   Optimiser.Pro is dark-native; this keeps the editorial feel while staying
-   legible on white: surfaces invert to slate/white, text to slate-900/600,
-   borders to black-alphas, and the mint accent deepens to emerald so it works
-   as both text and fill. Only token VALUES flip — every component (which uses
-   the semantic tokens) recolours automatically.
+   Light mode — a clean, low-chroma operator light theme. Three states:
+   • default (no attribute)        → dark (from @theme)
+   • OS light, user hasn't forced  → light (prefers-color-scheme)
+   • data-theme="light"            → light (explicit)
+   • data-theme="dark"             → dark  (explicit; wins over OS light)
+   Only token VALUES flip; every component recolours via the semantic tokens.
 --------------------------------------------------------------------------- */
 @media (prefers-color-scheme: light) {
-  :root {
-    --color-bg: #f4f6f9; /* page */
-    --color-bg-deep: #ffffff; /* home cards */
-    --color-bg-elevated: #f8fafc; /* active / narrative panels */
-    --color-surface: #ffffff; /* cards & panels */
-    --color-surface-hover: #eef2f7;
+  :root:not([data-theme="dark"]) {
+    --color-bg: #fbfbfa;
+    --color-bg-deep: #ffffff;
+    --color-bg-elevated: #ffffff;
+    --color-surface: #ffffff;
+    --color-surface-hover: #f4f5f3;
     --color-raised: #ffffff;
 
-    --color-line-whisper: rgba(2, 6, 23, 0.04);
-    --color-line: rgba(2, 6, 23, 0.1);
-    --color-line-strong: rgba(2, 6, 23, 0.16);
+    --color-line-whisper: rgba(26, 28, 26, 0.04);
+    --color-line: #e7e8e4;
+    --color-line-strong: #d6d8d2;
 
-    --color-fg: #0f172a; /* slate-900 */
-    --color-muted: #475569; /* slate-600 */
-    --color-faint: #64748b; /* slate-500 */
-    --color-ghost: #94a3b8; /* slate-400 */
+    --color-fg: #1a1c1a;
+    --color-muted: #5b6159;
+    --color-faint: #8a8f86;
+    --color-ghost: #aeb2a8;
 
-    /* Mint → emerald: legible as text AND as a button fill on white. */
-    --color-accent: #047857;
-    --color-accent-soft: #10b981;
-    --color-info: #2563eb;
-    --color-good: #047857;
-    --color-warn: #b45309;
+    --color-accent: #4d7c0f; /* darker green for contrast on light */
+    --color-accent-soft: #84cc16;
+
+    --color-info: #0284c7;
+    --color-good: #16a34a;
+    --color-warn: #d97706;
     --color-bad: #dc2626;
 
     --color-blue: #2563eb;
@@ -126,7 +140,45 @@
     --color-sky: #0284c7;
     --color-orange: #ea580c;
     --color-green: #059669;
+
+    --ring: rgba(77, 124, 15, 0.4);
   }
+}
+
+:root[data-theme="light"] {
+  --color-bg: #fbfbfa;
+  --color-bg-deep: #ffffff;
+  --color-bg-elevated: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f4f5f3;
+  --color-raised: #ffffff;
+
+  --color-line-whisper: rgba(26, 28, 26, 0.04);
+  --color-line: #e7e8e4;
+  --color-line-strong: #d6d8d2;
+
+  --color-fg: #1a1c1a;
+  --color-muted: #5b6159;
+  --color-faint: #8a8f86;
+  --color-ghost: #aeb2a8;
+
+  --color-accent: #4d7c0f;
+  --color-accent-soft: #84cc16;
+
+  --color-info: #0284c7;
+  --color-good: #16a34a;
+  --color-warn: #d97706;
+  --color-bad: #dc2626;
+
+  --color-blue: #2563eb;
+  --color-amber: #b45309;
+  --color-violet: #7c3aed;
+  --color-pink: #db2777;
+  --color-sky: #0284c7;
+  --color-orange: #ea580c;
+  --color-green: #059669;
+
+  --ring: rgba(77, 124, 15, 0.4);
 }
 
 html {
@@ -142,7 +194,7 @@ body {
 }
 
 ::selection {
-  background: rgba(0, 229, 160, 0.25);
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
   color: var(--color-fg);
 }
 
@@ -163,10 +215,35 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Editorial utilities
+   Cockpit base behaviours
+--------------------------------------------------------------------------- */
+@layer base {
+  /* Titles: repoint font-display to a clean Cockpit title — system-sans,
+     semibold, tight tracking. Explicit weight/tracking utilities on an element
+     (e.g. font-bold, tracking-tight) still win, since they sit in the
+     utilities layer. */
+  .font-display {
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  /* Mono is always tabular so columns of numbers align (Cockpit signature). */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Accessible focus ring for keyboard users. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Cockpit utilities
 --------------------------------------------------------------------------- */
 
-/* Mono eyebrow / overline — the signature "engineered" label. */
+/* Mono eyebrow / overline — the small uppercase label. */
 .eyebrow {
   font-family: var(--font-mono);
   font-size: 0.7rem;
@@ -175,7 +252,16 @@ body {
   color: var(--color-accent);
 }
 
-/* Gradient text for accent words / the wordmark. */
+/* Accent word inside a title — plain accent-coloured sans.
+   (Was Instrument Serif italic; Cockpit uses no serif and no italic accent.) */
+.serif-accent {
+  font-family: var(--font-sans);
+  font-style: normal;
+  color: var(--color-accent);
+}
+
+/* Gradient-text helpers retained for compatibility (currently unused). With the
+   flat tokens above these resolve to a solid accent, not a gradient. */
 .text-aurora {
   background-image: var(--grad-aurora);
   -webkit-background-clip: text;
@@ -191,42 +277,10 @@ body {
   color: transparent;
 }
 
-/* Instrument Serif italic accent — for a single word inside a sans headline. */
-.serif-accent {
-  font-family: var(--font-serif);
-  font-style: italic;
-  font-weight: 400;
-  color: var(--color-accent);
-}
-
-/* Ambient radial mint glow for hero / header areas. */
-.surface-glow {
-  position: relative;
-  overflow: hidden;
-}
-.surface-glow::before {
-  content: "";
-  position: absolute;
-  top: -40%;
-  right: -10%;
-  width: 480px;
-  height: 480px;
-  background: radial-gradient(
-    circle,
-    rgba(0, 229, 160, 0.06) 0%,
-    transparent 70%
-  );
-  pointer-events: none;
-}
-
-/* Mint focus glow for active indicators. */
-.glow-mint {
-  box-shadow: 0 0 0 1px rgba(0, 229, 160, 0.4), 0 0 24px rgba(0, 229, 160, 0.15);
-}
-
 @layer components {
-  /* Primary CTA — one token-driven button. Background AND hover glow read from
-     --color-accent, so both flip mint→emerald in light mode (no hardcoded mint). */
+  /* Primary CTA — one token-driven button. Background reads from --color-accent
+     so it flips green→dark-green in light mode. Flat: no lift, no glow at rest;
+     hover deepens via opacity (Cockpit press = opacity 0.9, no scale). */
   .btn-primary {
     display: inline-flex;
     align-items: center;
@@ -241,13 +295,11 @@ body {
     line-height: 1.25rem;
     font-weight: 600;
     transition:
-      transform 0.2s var(--ease-expo),
-      box-shadow 0.2s var(--ease-expo),
-      opacity 0.2s var(--ease-expo);
+      background-color 0.12s var(--ease-smooth),
+      opacity 0.12s var(--ease-smooth);
   }
   .btn-primary:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--color-accent) 55%, transparent);
+    opacity: 0.9;
   }
   .btn-primary:disabled {
     cursor: not-allowed;
@@ -271,10 +323,10 @@ body {
 @keyframes pulse-glow {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(0, 229, 160, 0.3);
+    box-shadow: 0 0 0 0 rgba(132, 204, 22, 0.3);
   }
   50% {
-    box-shadow: 0 0 0 16px rgba(0, 229, 160, 0);
+    box-shadow: 0 0 0 16px rgba(132, 204, 22, 0);
   }
 }
 @keyframes shimmer {
