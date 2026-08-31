@@ -8,7 +8,7 @@
 // Weeks are relative (W1 = kickoff). Edit this list to re-plan.
 // ============================================================================
 
-export type Lane = "AC" | "AS" | "TU";
+export type Lane = "AC" | "AS" | "TU" | "PDF";
 export type TestStatus = "live" | "prod-review" | "built" | "pending";
 
 export interface RoadmapTest {
@@ -64,6 +64,15 @@ export const ROADMAP: RoadmapLane[] = [
     site: "recharge landing",
     tests: [
       { ticket: "GP-603", title: "Reassurance banner — fresh design + new USPs", surface: "Header banner", startWeek: 1, endWeek: 3, status: "pending", note: "Re-run of GP-303 (dead goal, 0 conversions) — GP-603 in S16", rerunOf: "362" },
+    ],
+  },
+  {
+    lane: "PDF",
+    business: "PDF SaaS",
+    repo: "pdf",
+    site: "we-pdf.com · EX17 landing",
+    tests: [
+      { ticket: "GP-600", title: "EX17 v2 vs current — split URL", surface: "we-pdf.com landing", startWeek: 1, endWeek: 4, status: "pending", note: "Two URLs on the pdf repo: control = the existing EX17, variant = EX17_v2 replicated from the pdf-ai repo" },
     ],
   },
 ];

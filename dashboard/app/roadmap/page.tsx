@@ -19,6 +19,7 @@ const LANE: Record<Lane, { text: string; bar: string; sw: string }> = {
   AC: { text: "text-info", bar: "border-info/40 bg-info/10", sw: "bg-info" },
   AS: { text: "text-amber", bar: "border-amber/40 bg-amber/10", sw: "bg-amber" },
   TU: { text: "text-sky", bar: "border-sky/40 bg-sky/10", sw: "bg-sky" },
+  PDF: { text: "text-violet", bar: "border-violet/40 bg-violet/10", sw: "bg-violet" },
 };
 
 const STATUS: Record<RoadmapTest["status"], { label: string; cls: string }> = {
@@ -123,6 +124,7 @@ export default async function RoadmapPage() {
           <span className="inline-flex items-center gap-1.5"><i className={`h-2.5 w-2.5 rounded-sm ${LANE.AC.sw}`} /> AC · Check-In</span>
           <span className="inline-flex items-center gap-1.5"><i className={`h-2.5 w-2.5 rounded-sm ${LANE.AS.sw}`} /> AS · Fast-Track</span>
           <span className="inline-flex items-center gap-1.5"><i className={`h-2.5 w-2.5 rounded-sm ${LANE.TU.sw}`} /> TU · Top Up</span>
+          <span className="inline-flex items-center gap-1.5"><i className={`h-2.5 w-2.5 rounded-sm ${LANE.PDF.sw}`} /> PDF · we-pdf.com</span>
           <span className="inline-flex items-center gap-1.5 text-faint">↩ re-run of a past test</span>
         </div>
       </section>
