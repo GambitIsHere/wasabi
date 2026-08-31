@@ -84,4 +84,46 @@ async function doCreateSchema(): Promise<void> {
       PRIMARY KEY (experiment_key, key)
     )
   `;
+
+  // Archive — past experiments imported from other platforms (VWO first). Unlike
+  // the live `experiment` model, these carry their RESULTS as stored data (the
+  // live model computes results from payments at runtime; a historical run on
+  // another platform has no such feed). Keyed separately so archive never mixes
+  // with the routing hot path (/decide never reads these).
+  await sql`
+    CREATE TABLE IF NOT EXISTS archived_experiment (
+      key               TEXT PRIMARY KEY,
+      name              TEXT NOT NULL,
+      business          TEXT NOT NULL,
+      source            TEXT NOT NULL DEFAULT 'vwo',
+      source_id         TEXT,
+      source_url        TEXT,
+      type              TEXT,
+      status            TEXT NOT NULL DEFAULT 'archived',
+      goal_metric       TEXT,
+      start_date        TEXT,
+      end_date          TEXT,
+      winner_variant    TEXT,
+      visitors_total    INTEGER NOT NULL DEFAULT 0,
+      conversions_total INTEGER NOT NULL DEFAULT 0,
+      hypothesis        TEXT NOT NULL DEFAULT '',
+      notes             TEXT NOT NULL DEFAULT '',
+      imported_at       TEXT NOT NULL
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS archived_variant (
+      archived_key    TEXT NOT NULL REFERENCES archived_experiment(key) ON DELETE CASCADE,
+      key             TEXT NOT NULL,
+      name            TEXT NOT NULL DEFAULT '',
+      is_control      INTEGER NOT NULL DEFAULT 0,
+      visitors        INTEGER NOT NULL DEFAULT 0,
+      conversions     INTEGER NOT NULL DEFAULT 0,
+      conversion_rate REAL NOT NULL DEFAULT 0,
+      improvement     REAL,
+      chance_to_beat  REAL,
+      position        INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (archived_key, key)
+    )
+  `;
 }
