@@ -38,9 +38,9 @@ export type ResultsOutcome =
 
 // Single source of truth for the Transaction creation-timestamp column. This is
 // the FIRST place the payment query reads a Transaction timestamp — the flat
-// P&L columns never needed one — so it is UNVERIFIED against global-api's schema.
-// If the column is named differently there (e.g. "created_at"), change it HERE
-// only; every rebill-cycle ordering flows through it. See the file's header note.
+// P&L columns never needed one. VERIFIED against global-api/prisma/schema.prisma:
+// Transaction."createdAt" (indexed) and PK "transactionId" both exist. If the
+// schema ever renames them, change it HERE only; every rebill ordering flows through.
 const TX_CREATED_AT = "createdAt";
 
 function resultsSql(
@@ -91,7 +91,7 @@ rebill_ranked AS (
     t."type" AS tx_type,
     ROW_NUMBER() OVER (
       PARTITION BY COALESCE(t."subscriptionId"::text, v.application_id::text)
-      ORDER BY t.${ts}, t."id"
+      ORDER BY t.${ts}, t."transactionId"
     ) AS cycle
   FROM variant v
   JOIN "Transaction" t ON t."applicationId" = v.application_id
