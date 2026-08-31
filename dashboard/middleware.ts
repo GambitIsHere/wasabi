@@ -23,6 +23,7 @@ const PUBLIC_PREFIXES = [
   "/api/auth",
   "/signin",
   "/handover.html",
+  "/icon.svg", // favicon — must load on the sign-in page / logged-out tabs
 ];
 
 function isPublic(pathname: string): boolean {
