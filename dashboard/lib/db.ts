@@ -164,4 +164,29 @@ async function doCreateSchema(): Promise<void> {
   `;
   // Feed + today-window reads both order/filter by ts newest-first.
   await sql`CREATE INDEX IF NOT EXISTS event_ts_idx ON event (ts DESC)`;
+
+  // Roadmap — the editable, DB-backed version of the curated test plan that used
+  // to live only in lib/roadmap.ts. Each row is one test on one lane's runway;
+  // the drag-and-drop UI writes lane / start_week / end_week / position here so a
+  // re-plan sticks for everyone. Lane-level metadata (business / repo / site) is
+  // fixed per lane and stays in code (lib/roadmap.ts LANE_META) — never stored.
+  // Seeded from the static ROADMAP on an empty table (lib/roadmap-store.ts).
+  await sql`
+    CREATE TABLE IF NOT EXISTS roadmap_test (
+      id         TEXT PRIMARY KEY,
+      lane       TEXT NOT NULL,
+      ticket     TEXT NOT NULL DEFAULT '',
+      title      TEXT NOT NULL,
+      surface    TEXT NOT NULL DEFAULT '',
+      start_week INTEGER NOT NULL,
+      end_week   INTEGER NOT NULL,
+      status     TEXT NOT NULL,
+      pilot      INTEGER NOT NULL DEFAULT 0,
+      note       TEXT,
+      rerun_of   TEXT,
+      position   INTEGER NOT NULL DEFAULT 0
+    )
+  `;
+  // Runway reads order within a lane by position then start_week.
+  await sql`CREATE INDEX IF NOT EXISTS roadmap_test_lane_idx ON roadmap_test (lane, position, start_week)`;
 }

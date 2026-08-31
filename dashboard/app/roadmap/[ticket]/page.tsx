@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { findRoadmapTest, YT } from "@/lib/roadmap";
+import { YT } from "@/lib/roadmap";
+import { findRoadmapTestAsync } from "@/lib/roadmap-store";
 import { LANE, STATUS } from "@/lib/roadmap-format";
 import { listArchived } from "@/lib/archive";
 
@@ -15,7 +16,7 @@ export default async function RoadmapTestPage({
   params: Promise<{ ticket: string }>;
 }) {
   const { ticket } = await params;
-  const found = findRoadmapTest(ticket);
+  const found = await findRoadmapTestAsync(ticket);
   if (!found) notFound();
   const { lane, test } = found;
 

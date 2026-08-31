@@ -8,10 +8,13 @@
 // Weeks are relative (W1 = kickoff). Edit this list to re-plan.
 // ============================================================================
 
+import { slugify } from "./mgmt";
+
 export type Lane = "AC" | "AS" | "TU" | "PDF";
 export type TestStatus = "live" | "prod-review" | "built" | "pending";
 
 export interface RoadmapTest {
+  id?: string; // stable row id (ticket if non-empty, else slug of the title). Set by the DB store; omitted on the static seed.
   ticket: string; // GP-xxx, or "" when a ticket is still being drafted
   title: string;
   surface: string;
@@ -32,6 +35,9 @@ export interface RoadmapLane {
 }
 
 export const TOTAL_WEEKS = 10;
+
+/** Fixed lane order — the rows on the runway, top to bottom. */
+export const LANES: Lane[] = ["AC", "AS", "TU", "PDF"];
 
 export const ROADMAP: RoadmapLane[] = [
   {
@@ -76,6 +82,26 @@ export const ROADMAP: RoadmapLane[] = [
     ],
   },
 ];
+
+// Lane-level metadata is FIXED per lane (which business / repo / site a lane
+// runs on), so it is NOT stored per test in the DB — the roadmap store rebuilds
+// each RoadmapLane from these constants plus the tests it read back. Derived from
+// the seed above so the two never drift.
+export const LANE_META: Record<Lane, { business: string; repo: string; site: string }> =
+  Object.fromEntries(
+    ROADMAP.map((l) => [l.lane, { business: l.business, repo: l.repo, site: l.site }]),
+  ) as Record<Lane, { business: string; repo: string; site: string }>;
+
+/**
+ * Stable id for a roadmap test row: the ticket when it has one, else a slug of
+ * the title (so a drafted, ticket-less test is still addressable in the DB).
+ * The single source of truth for how the store keys rows and how the client
+ * refers to a tile when it saves a drop.
+ */
+export function roadmapTestId(test: Pick<RoadmapTest, "ticket" | "title">): string {
+  const ticket = test.ticket.trim();
+  return ticket.length > 0 ? ticket : slugify(test.title);
+}
 
 export const YT = (ticket: string): string =>
   `https://sanjow.youtrack.cloud/issue/${ticket}`;

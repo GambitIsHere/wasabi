@@ -1,7 +1,8 @@
-import { Fragment, type CSSProperties } from "react";
 import Link from "next/link";
-import { ROADMAP, TOTAL_WEEKS } from "@/lib/roadmap";
+import { ROADMAP, type RoadmapLane } from "@/lib/roadmap";
+import { listRoadmap } from "@/lib/roadmap-store";
 import { LANE, STATUS } from "@/lib/roadmap-format";
+import { EditableRunway } from "@/components/roadmap/EditableRunway";
 import {
   TESTED_ELEMENTS,
   VERDICTS,
@@ -10,10 +11,11 @@ import {
 } from "@/lib/tested-elements";
 import { listArchived } from "@/lib/archive";
 
-// The roadmap itself is curated in lib/roadmap.ts, but the re-run captions and
-// the tested-elements table deep-link into the archive by `key` — which is only
-// known from the DB — so render per request (imports land there) and degrade if
-// the DB is down. Same posture as /archive.
+// The roadmap is now DB-backed (lib/roadmap-store.ts) so drag-and-drop edits
+// persist; the re-run captions and the tested-elements table also deep-link into
+// the archive by `key`, known only from the DB. So render per request and degrade
+// gracefully if the DB is down: fall back to the static ROADMAP and turn dragging
+// off. Same posture as /archive.
 export const dynamic = "force-dynamic";
 
 // Verdict → pill classes. settled = bad, retest = warn, broken = info, unread = faint.
@@ -24,10 +26,19 @@ const VERDICT_CLS: Record<Verdict, string> = {
   unread: "border-line-strong bg-bg text-faint",
 };
 
-const weeks = Array.from({ length: TOTAL_WEEKS }, (_, i) => i + 1);
-const short = (s: string) => (s.length > 26 ? s.slice(0, 25) + "…" : s);
-
 export default async function RoadmapPage() {
+  // The editable runway reads from the DB store; if that's unreachable, render
+  // the static ROADMAP read-only (dragging disabled) so the page never breaks.
+  let lanes: RoadmapLane[];
+  let editable: boolean;
+  try {
+    lanes = await listRoadmap();
+    editable = true;
+  } catch {
+    lanes = ROADMAP;
+    editable = false;
+  }
+
   // Resolve archive campaign sourceId → archive `key` for deep links. Falls back
   // to the archive list when the DB isn't reachable at request time.
   const keyBySourceId = new Map<string, string>();
@@ -63,61 +74,7 @@ export default async function RoadmapPage() {
           <h2 className="eyebrow">The runway</h2>
           <span className="font-mono text-xs text-faint">lanes parallel · serial within a lane</span>
         </div>
-        <div className="overflow-x-auto rounded-xl border border-line bg-surface p-4">
-          <div
-            className="grid min-w-[760px] gap-x-1.5 gap-y-2.5"
-            style={{ gridTemplateColumns: `128px repeat(${TOTAL_WEEKS}, minmax(0,1fr))` }}
-          >
-            <div style={{ gridRow: 1, gridColumn: 1 }} />
-            {weeks.map((w) => (
-              <div
-                key={w}
-                style={{ gridRow: 1, gridColumn: w + 1 }}
-                className="border-b border-line pb-1 text-center font-mono text-[10px] text-faint"
-              >
-                W{w}
-              </div>
-            ))}
-
-            {ROADMAP.map((lane, li) => (
-              <Fragment key={lane.lane}>
-                <div style={{ gridRow: li + 2, gridColumn: 1 }} className="flex flex-col justify-center pr-2">
-                  <span className={`font-display text-sm font-bold ${LANE[lane.lane].text}`}>{lane.lane}</span>
-                  <span className="font-mono text-[9px] text-faint">{lane.repo}</span>
-                </div>
-                {lane.tests.map((t) => {
-                  const barStyle: CSSProperties = {
-                    gridRow: li + 2,
-                    gridColumn: `${t.startWeek + 1} / ${t.endWeek + 2}`,
-                  };
-                  const barClass = `flex min-h-[48px] flex-col justify-center gap-0.5 rounded-lg border px-2.5 py-1.5 no-underline transition ${LANE[lane.lane].bar} ${t.ticket ? "hover:brightness-125" : ""}`;
-                  const barInner = (
-                    <>
-                      <span className={`font-mono text-[11px] font-semibold ${LANE[lane.lane].text}`}>
-                        {t.ticket || "new"}
-                        {t.status === "live" && " · live"}
-                        {t.pilot && " · pilot"}
-                        {t.rerunOf && " · ↩"}
-                      </span>
-                      <span className="text-[11px] leading-tight text-fg">{short(t.title)}</span>
-                    </>
-                  );
-                  // Every roadmap test now opens its Wasabi detail page; a drafted
-                  // test with no ticket yet stays a non-clickable bar.
-                  return t.ticket ? (
-                    <Link key={lane.lane + t.title} href={`/roadmap/${t.ticket}`} style={barStyle} className={barClass}>
-                      {barInner}
-                    </Link>
-                  ) : (
-                    <div key={lane.lane + t.title} style={barStyle} className={barClass}>
-                      {barInner}
-                    </div>
-                  );
-                })}
-              </Fragment>
-            ))}
-          </div>
-        </div>
+        <EditableRunway lanes={lanes} editable={editable} />
         <div className="flex flex-wrap gap-4 font-mono text-[11px] text-muted">
           <span className="inline-flex items-center gap-1.5"><i className={`h-2.5 w-2.5 rounded-sm ${LANE.AC.sw}`} /> AC · Check-In</span>
           <span className="inline-flex items-center gap-1.5"><i className={`h-2.5 w-2.5 rounded-sm ${LANE.AS.sw}`} /> AS · Fast-Track</span>
@@ -211,7 +168,7 @@ export default async function RoadmapPage() {
       <section className="space-y-3">
         <h2 className="eyebrow">Order per repo</h2>
         <div className="grid gap-5 lg:grid-cols-3">
-          {ROADMAP.map((lane) => (
+          {lanes.map((lane) => (
             <div key={lane.lane} className="overflow-hidden rounded-xl border border-line bg-surface">
               <header className="flex items-center gap-2 border-b border-line px-5 py-4">
                 <span className={`h-5 w-2.5 rounded-sm ${LANE[lane.lane].sw}`} />
