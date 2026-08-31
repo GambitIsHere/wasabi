@@ -63,7 +63,7 @@ export const ROADMAP: RoadmapLane[] = [
     repo: "prepaid-mobile-recharge-ai",
     site: "recharge landing",
     tests: [
-      { ticket: "", title: "Reassurance banner — fresh design + new USPs", surface: "Header banner", startWeek: 1, endWeek: 3, status: "pending", note: "Re-run of GP-303 (V1 lost, V2 tied) — new ticket in draft", rerunOf: "362" },
+      { ticket: "GP-603", title: "Reassurance banner — fresh design + new USPs", surface: "Header banner", startWeek: 1, endWeek: 3, status: "pending", note: "Re-run of GP-303 (dead goal, 0 conversions) — GP-603 in S16", rerunOf: "362" },
     ],
   },
 ];
