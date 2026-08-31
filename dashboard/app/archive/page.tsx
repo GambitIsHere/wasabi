@@ -1,55 +1,9 @@
 import Link from "next/link";
-import {
-  listArchived,
-  type ArchivedExperiment,
-  type ArchivedStatus,
-} from "@/lib/archive";
+import { listArchived, type ArchivedExperiment } from "@/lib/archive";
+import { STATUS, dateRange, int, Uplift } from "@/lib/archive-format";
 
 // Reads the archive from the DB on every load — imports land here.
 export const dynamic = "force-dynamic";
-
-const STATUS: Record<ArchivedStatus, { label: string; cls: string }> = {
-  winner: { label: "Winner", cls: "border-good/30 bg-good/10 text-good" },
-  lost: { label: "Lost", cls: "border-bad/30 bg-bad/10 text-bad" },
-  inconclusive: {
-    label: "Inconclusive",
-    cls: "border-warn/30 bg-warn/10 text-warn",
-  },
-  archived: { label: "Archived", cls: "border-line-strong bg-bg text-muted" },
-};
-
-const MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ");
-
-function fmtDate(iso: string | null): string | null {
-  if (!iso) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  if (!m) return iso;
-  return `${MONTHS[+m[2] - 1]} ${+m[3]}, ${m[1]}`;
-}
-
-function dateRange(exp: ArchivedExperiment): string {
-  const s = fmtDate(exp.startDate);
-  const e = fmtDate(exp.endDate);
-  if (s && e) return `${s} – ${e}`;
-  return s ?? e ?? "date n/a";
-}
-
-const int = (n: number) => n.toLocaleString("en-US");
-
-function Uplift({ value }: { value: number | null }) {
-  if (value == null) return <span className="text-faint">—</span>;
-  if (Math.abs(value) < 0.05)
-    return <span className="tabular-nums text-muted">0%</span>;
-  const good = value > 0;
-  return (
-    <span
-      className={`tabular-nums font-medium ${good ? "text-good" : "text-bad"}`}
-    >
-      {good ? "▲" : "▼"} {good ? "+" : ""}
-      {value.toFixed(1)}%
-    </span>
-  );
-}
 
 export default async function ArchivePage() {
   let experiments: ArchivedExperiment[] = [];
@@ -208,7 +162,12 @@ export default async function ArchivePage() {
                   )}
                 </div>
                 <h2 className="font-display text-lg font-semibold text-fg">
-                  {exp.name}
+                  <Link
+                    href={`/archive/${exp.key}`}
+                    className="transition-colors hover:text-accent"
+                  >
+                    {exp.name}
+                  </Link>
                 </h2>
                 <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-faint">
                   <span>{dateRange(exp)}</span>
