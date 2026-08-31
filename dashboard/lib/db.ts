@@ -137,4 +137,31 @@ async function doCreateSchema(): Promise<void> {
   await sql`ALTER TABLE archived_variant ADD COLUMN IF NOT EXISTS rebill_r2 REAL`;
   await sql`ALTER TABLE archived_variant ADD COLUMN IF NOT EXISTS rebill_r3 REAL`;
   await sql`ALTER TABLE archived_variant ADD COLUMN IF NOT EXISTS net_rev_per_acquired REAL`;
+
+  // Event log — the assignment side of the live cockpit feed. /api/capture is a
+  // public, unauthenticated endpoint; before this table it discarded every event
+  // (see the old handleCapture note), so assignment activity was unrecoverable.
+  // Now each capture persists ONE row here. The payment side of the feed (auth /
+  // rebill / declined + amounts) is NOT stored — it is read live from global-api
+  // via Metabase (lib/metabase.ts), keyed by theme slug. So this table holds only
+  // what Metabase cannot give us: who was assigned to which arm, and when.
+  //
+  // Bounded on purpose (see lib/events.ts `pruneEvents`): rows older than 7 days
+  // are pruned, with a 10,000-row hard cap as a second guard, so an unauthenticated
+  // firehose can never grow it without limit. `ts` is a UTC ISO-8601 string
+  // (always `new Date().toISOString()`), so lexicographic ordering == chronological.
+  await sql`
+    CREATE TABLE IF NOT EXISTS event (
+      id             BIGSERIAL PRIMARY KEY,
+      ts             TEXT NOT NULL,
+      distinct_id    TEXT NOT NULL,
+      event          TEXT NOT NULL,
+      experiment_key TEXT,
+      variant        TEXT,
+      business       TEXT,
+      kind           TEXT NOT NULL
+    )
+  `;
+  // Feed + today-window reads both order/filter by ts newest-first.
+  await sql`CREATE INDEX IF NOT EXISTS event_ts_idx ON event (ts DESC)`;
 }

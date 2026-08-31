@@ -344,6 +344,37 @@ async function runResultsRaw(
 }
 
 // ---------------------------------------------------------------------------
+// Generic SELECT runner — for callers that need their own SELECT (e.g. the home
+// cockpit's transaction-date-keyed "collected today" / recent-payments queries,
+// which the cohort-keyed resultsSql above can't express). Same plumbing, same
+// graceful degradation: no key / no URL / any error → { available:false, reason }.
+// NEVER throws. SELECT-only — the caller is responsible for keeping it read-only.
+// ---------------------------------------------------------------------------
+
+export type MetabaseSelectOutcome =
+  | { available: true; rows: Array<Record<string, unknown>> }
+  | { available: false; reason: string };
+
+export async function runMetabaseSelect(sql: string): Promise<MetabaseSelectOutcome> {
+  const apiKey = process.env.METABASE_API_KEY;
+  if (!apiKey) {
+    return { available: false, reason: "METABASE_API_KEY not configured" };
+  }
+  const baseUrl = (process.env.METABASE_URL ?? "").replace(/\/$/, "");
+  if (!baseUrl) {
+    return { available: false, reason: "METABASE_URL not configured" };
+  }
+  try {
+    const databaseId = await resolveDatabaseId(baseUrl, apiKey);
+    const rows = await runNativeQuery(baseUrl, apiKey, databaseId, sql);
+    return { available: true, rows };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : "Unknown Metabase error";
+    return { available: false, reason };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point — live per-variant P&L for a registered experiment
 // ---------------------------------------------------------------------------
 
