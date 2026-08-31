@@ -1,6 +1,7 @@
-import { Fragment } from "react";
+import { Fragment, type CSSProperties } from "react";
 import Link from "next/link";
-import { ROADMAP, YT, TOTAL_WEEKS, type Lane, type RoadmapTest } from "@/lib/roadmap";
+import { ROADMAP, TOTAL_WEEKS } from "@/lib/roadmap";
+import { LANE, STATUS } from "@/lib/roadmap-format";
 import {
   TESTED_ELEMENTS,
   VERDICTS,
@@ -14,20 +15,6 @@ import { listArchived } from "@/lib/archive";
 // known from the DB — so render per request (imports land there) and degrade if
 // the DB is down. Same posture as /archive.
 export const dynamic = "force-dynamic";
-
-const LANE: Record<Lane, { text: string; bar: string; sw: string }> = {
-  AC: { text: "text-info", bar: "border-info/40 bg-info/10", sw: "bg-info" },
-  AS: { text: "text-amber", bar: "border-amber/40 bg-amber/10", sw: "bg-amber" },
-  TU: { text: "text-sky", bar: "border-sky/40 bg-sky/10", sw: "bg-sky" },
-  PDF: { text: "text-violet", bar: "border-violet/40 bg-violet/10", sw: "bg-violet" },
-};
-
-const STATUS: Record<RoadmapTest["status"], { label: string; cls: string }> = {
-  live: { label: "Live now", cls: "border-good/30 bg-good/10 text-good" },
-  "prod-review": { label: "Prod review", cls: "border-warn/30 bg-warn/10 text-warn" },
-  built: { label: "Built", cls: "border-line-strong bg-bg text-muted" },
-  pending: { label: "New ticket", cls: "border-violet/30 bg-violet/10 text-violet" },
-};
 
 // Verdict → pill classes. settled = bad, retest = warn, broken = info, unread = faint.
 const VERDICT_CLS: Record<Verdict, string> = {
@@ -98,24 +85,35 @@ export default async function RoadmapPage() {
                   <span className={`font-display text-sm font-bold ${LANE[lane.lane].text}`}>{lane.lane}</span>
                   <span className="font-mono text-[9px] text-faint">{lane.repo}</span>
                 </div>
-                {lane.tests.map((t) => (
-                  <a
-                    key={lane.lane + t.title}
-                    href={t.ticket ? YT(t.ticket) : undefined}
-                    target={t.ticket ? "_blank" : undefined}
-                    rel="noopener noreferrer"
-                    style={{ gridRow: li + 2, gridColumn: `${t.startWeek + 1} / ${t.endWeek + 2}` }}
-                    className={`flex min-h-[48px] flex-col justify-center gap-0.5 rounded-lg border px-2.5 py-1.5 no-underline transition ${LANE[lane.lane].bar} ${t.ticket ? "hover:brightness-125" : ""}`}
-                  >
-                    <span className={`font-mono text-[11px] font-semibold ${LANE[lane.lane].text}`}>
-                      {t.ticket || "new"}
-                      {t.status === "live" && " · live"}
-                      {t.pilot && " · pilot"}
-                      {t.rerunOf && " · ↩"}
-                    </span>
-                    <span className="text-[11px] leading-tight text-fg">{short(t.title)}</span>
-                  </a>
-                ))}
+                {lane.tests.map((t) => {
+                  const barStyle: CSSProperties = {
+                    gridRow: li + 2,
+                    gridColumn: `${t.startWeek + 1} / ${t.endWeek + 2}`,
+                  };
+                  const barClass = `flex min-h-[48px] flex-col justify-center gap-0.5 rounded-lg border px-2.5 py-1.5 no-underline transition ${LANE[lane.lane].bar} ${t.ticket ? "hover:brightness-125" : ""}`;
+                  const barInner = (
+                    <>
+                      <span className={`font-mono text-[11px] font-semibold ${LANE[lane.lane].text}`}>
+                        {t.ticket || "new"}
+                        {t.status === "live" && " · live"}
+                        {t.pilot && " · pilot"}
+                        {t.rerunOf && " · ↩"}
+                      </span>
+                      <span className="text-[11px] leading-tight text-fg">{short(t.title)}</span>
+                    </>
+                  );
+                  // Every roadmap test now opens its Wasabi detail page; a drafted
+                  // test with no ticket yet stays a non-clickable bar.
+                  return t.ticket ? (
+                    <Link key={lane.lane + t.title} href={`/roadmap/${t.ticket}`} style={barStyle} className={barClass}>
+                      {barInner}
+                    </Link>
+                  ) : (
+                    <div key={lane.lane + t.title} style={barStyle} className={barClass}>
+                      {barInner}
+                    </div>
+                  );
+                })}
               </Fragment>
             ))}
           </div>
@@ -226,9 +224,9 @@ export default async function RoadmapPage() {
                     <span className={`font-display text-base font-bold ${LANE[lane.lane].text}`}>{i + 1}</span>
                     <div className="space-y-1.5">
                       {t.ticket ? (
-                        <a href={YT(t.ticket)} target="_blank" rel="noopener noreferrer" className="font-mono text-xs font-semibold text-info hover:underline">
-                          {t.ticket} <span aria-hidden="true">↗</span>
-                        </a>
+                        <Link href={`/roadmap/${t.ticket}`} className="font-mono text-xs font-semibold text-info hover:underline">
+                          {t.ticket} <span aria-hidden="true">→</span>
+                        </Link>
                       ) : (
                         <span className="font-mono text-xs font-semibold text-violet">ticket in draft</span>
                       )}

@@ -79,3 +79,19 @@ export const ROADMAP: RoadmapLane[] = [
 
 export const YT = (ticket: string): string =>
   `https://sanjow.youtrack.cloud/issue/${ticket}`;
+
+/**
+ * Find a single roadmap test by its ticket id (e.g. "GP-452"), with the lane it
+ * belongs to. Returns undefined when no test carries that ticket. An empty
+ * ticket never matches — drafted tests (ticket "") aren't addressable.
+ */
+export function findRoadmapTest(
+  ticket: string,
+): { lane: RoadmapLane; test: RoadmapTest } | undefined {
+  if (!ticket) return undefined;
+  for (const lane of ROADMAP) {
+    const test = lane.tests.find((t) => t.ticket === ticket);
+    if (test) return { lane, test };
+  }
+  return undefined;
+}
