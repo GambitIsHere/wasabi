@@ -20,6 +20,7 @@
 import {
   recentAssignments,
   assignmentCountsToday,
+  assignmentCountsTodayByExperiment,
   type StoredEventRow,
 } from "./events";
 import { runMetabaseSelect } from "./metabase";
@@ -311,6 +312,17 @@ export async function recentActivity(limit = 20): Promise<ActivityItem[]> {
 export async function assignmentsToday(): Promise<AssignmentsToday> {
   const counts = await safe(assignmentCountsToday(), { total: 0, byBusiness: [] });
   return { total: counts.total, byBusiness: counts.byBusiness };
+}
+
+/**
+ * Per-experiment assignment count for today (UTC), keyed by experiment key — the
+ * TODAY column of the cockpit table. Any failure / empty store → {} so the column
+ * always renders (a missing key reads as 0 at the call site).
+ */
+export async function assignmentsTodayByExperiment(): Promise<
+  Record<string, number>
+> {
+  return safe(assignmentCountsTodayByExperiment(), {} as Record<string, number>);
 }
 
 /** Cash collected today (paid + rebill, GBP) across live-experiment slugs. */

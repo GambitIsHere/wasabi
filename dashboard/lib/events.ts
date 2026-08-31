@@ -176,3 +176,26 @@ export async function assignmentCountsToday(): Promise<{
   const total = byBusiness.reduce((sum, r) => sum + r.count, 0);
   return { total, byBusiness };
 }
+
+/**
+ * Today's assignment counts (UTC day) grouped by experiment key — the per-row
+ * TODAY column of the cockpit table. Same window + kind filter as
+ * assignmentCountsToday; rows with a NULL experiment_key are dropped (they can't
+ * be attributed to a row). Empty store → {}.
+ */
+export async function assignmentCountsTodayByExperiment(): Promise<
+  Record<string, number>
+> {
+  await createSchema();
+  const sql = getSql();
+  const since = startOfTodayIso();
+  const rows = (await sql`
+    SELECT experiment_key AS key, COUNT(*)::int AS count
+    FROM event
+    WHERE kind = 'assignment' AND ts >= ${since} AND experiment_key IS NOT NULL
+    GROUP BY experiment_key
+  `) as unknown as Array<{ key: string; count: number }>;
+  const out: Record<string, number> = {};
+  for (const r of rows) out[r.key] = r.count;
+  return out;
+}

@@ -1,198 +1,232 @@
+// ============================================================================
+// Wasabi — cockpit homepage.
+// ----------------------------------------------------------------------------
+// A single server component that reads the whole live picture once (homeMetrics
+// + the experiment registry + today's per-experiment assignment counts), decides
+// each experiment's verdict server-side via the existing runResults + buildVerdict
+// path, and hands flat view-models to the client table. Every payment/verdict-
+// derived value degrades to a clean empty state when Metabase is unavailable
+// (locally), so the page renders correctly with zero payment data.
+//
+// Sections top→bottom: header · KPI strip · alert banners · verdict table ·
+// live-events + assignments panels.
 import Link from "next/link";
-import { getExperiments } from "@/lib/experiments";
-import { StatusPill } from "@/components/pills";
-import { ExperimentControls } from "@/components/ExperimentControls";
+import { homeMetrics, assignmentsTodayByExperiment } from "@/lib/home";
+import { listExperiments, toRegistered } from "@/lib/store";
+import { runResults } from "@/lib/metabase";
+import { buildVerdict } from "@/lib/verdict";
+import type { StoredExperiment } from "@/lib/mgmt";
+import type { Recommendation } from "@/lib/verdict";
+import { KpiStrip } from "@/components/home/KpiStrip";
+import { AlertBanners, type NoTrafficFlag } from "@/components/home/AlertBanners";
+import { ExperimentTable } from "@/components/home/ExperimentTable";
+import { LiveEventsPanel } from "@/components/home/LiveEventsPanel";
+import { AssignmentsPanel } from "@/components/home/AssignmentsPanel";
+import type { ExperimentRowVM, GuardrailFlag } from "@/components/home/types";
 
-// DB-backed list — re-read on every request so create/edit/toggle/delete reflect
-// immediately (also revalidated by the actions).
+// Re-read on every request: create/edit/toggle/assign all reflect immediately,
+// and the live feed + payment KPIs are point-in-time.
 export const dynamic = "force-dynamic";
 
-// Per-variant bar colours from the editorial palette.
-const VARIANT_BARS = [
-  "bg-accent",
-  "bg-info",
-  "bg-violet",
-  "bg-pink",
-  "bg-amber",
-  "bg-sky",
-];
+// ---------------------------------------------------------------------------
+// Server-side verdict summary — the payment/verdict half of a table row. Built
+// only for ACTIVE experiments (paused ones read "queued"); NEVER throws — a
+// Metabase-less environment simply yields { available: false }.
+// ---------------------------------------------------------------------------
 
-export default async function HomePage() {
-  const experiments = await getExperiments();
-
-  return (
-    <div className="space-y-10">
-      {/* Intro + New */}
-      <section className="relative">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="space-y-3">
-            <p className="eyebrow">Live experiments</p>
-            <h1 className="font-display text-4xl font-bold tracking-tight text-fg sm:text-5xl">
-              Every test, one <span className="serif-accent">verdict</span>.
-            </h1>
-          </div>
-          <Link href="/experiments/new" className="btn-primary">
-            + New experiment
-          </Link>
-        </div>
-        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-muted">
-          <span className="font-medium text-fg">Wasabi</span> is Sanjow&apos;s
-          in-house experimentation engine — PostHog-compatible. It assigns each
-          visitor a sticky variant with a storage-free SHA-1 hash (the same user
-          always lands in the same arm, on any machine, with no DB lookup), then
-          ties every arm back to its real payment P&amp;L to deliver a verdict:
-          which variant actually made more money per acquired customer, and
-          whether the difference is statistically real.
-        </p>
-        <div
-          className="mt-6 h-0.5 w-28 rounded-full bg-accent"
-          aria-hidden="true"
-        />
-      </section>
-
-      {/* Experiment cards */}
-      {experiments.length === 0 ? (
-        <EmptyState />
-      ) : (
-        <section
-          aria-label="Registered experiments"
-          className="grid gap-4 sm:grid-cols-2"
-        >
-          {experiments.map((exp, i) => {
-            const variants = exp.flag.variants ?? [];
-            return (
-              <article
-                key={exp.flag.key}
-                className="card-clickable group relative flex flex-col overflow-hidden rounded-xl border border-line bg-bg-deep p-5"
-              >
-                {/* Oversized faded index — editorial signature. */}
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute -right-1 top-1 font-display text-6xl font-bold tabular-nums text-accent/[0.07]"
-                >
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-
-                <div className="relative flex items-start justify-between gap-3">
-                  <Link
-                    href={`/experiments/${exp.flag.key}`}
-                    className="min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-deep"
-                  >
-                    <h2 className="truncate font-display text-base font-semibold text-fg transition-colors group-hover:text-accent">
-                      {exp.name}
-                    </h2>
-                    <code className="mt-0.5 block truncate font-mono text-xs text-faint">
-                      {exp.flag.key}
-                    </code>
-                  </Link>
-                  <StatusPill active={exp.flag.active} />
-                </div>
-
-                <p className="relative mt-3 line-clamp-2 text-sm leading-relaxed text-muted">
-                  {exp.description}
-                </p>
-
-                {/* Traffic split */}
-                <div className="relative mt-4">
-                  <div className="mb-1.5 flex items-center justify-between font-mono text-[10px] font-medium uppercase tracking-wider text-muted">
-                    <span>Traffic split</span>
-                    <span className="text-muted">
-                      {exp.flag.rolloutPercentage}% rollout
-                    </span>
-                  </div>
-                  <div className="flex h-2 w-full overflow-hidden rounded-full bg-bg">
-                    {variants.map((v, vi) => (
-                      <div
-                        key={v.key}
-                        className={VARIANT_BARS[vi % VARIANT_BARS.length]}
-                        style={{ width: `${v.rolloutPercentage}%` }}
-                        title={`${v.key}: ${v.rolloutPercentage}%`}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                {/* Variants → theme */}
-                <ul className="relative mt-4 space-y-1.5 text-sm">
-                  {variants.map((v) => {
-                    const theme = exp.themeMap[v.key];
-                    const isControl = v.key === exp.controlVariant;
-                    return (
-                      <li
-                        key={v.key}
-                        className="flex items-center gap-2 text-muted"
-                      >
-                        <span className="font-mono text-xs text-fg">{v.key}</span>
-                        {isControl && (
-                          <span className="font-mono text-[10px] font-medium uppercase tracking-wider text-info">
-                            ctrl
-                          </span>
-                        )}
-                        <span className="text-faint">·</span>
-                        <span className="font-mono tabular-nums text-faint">
-                          {v.rolloutPercentage}%
-                        </span>
-                        {theme && (
-                          <>
-                            <span className="text-faint">→</span>
-                            <code className="font-mono text-xs text-accent/90">
-                              ?theme={theme}
-                            </code>
-                          </>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-
-                {/* Footer: detail link + controls */}
-                <div className="relative mt-5 flex items-center justify-between gap-3 border-t border-line pt-4">
-                  <div className="flex items-center gap-3 text-xs font-medium">
-                    <Link
-                      href={`/experiments/${exp.flag.key}`}
-                      className="inline-flex items-center gap-1 text-faint transition-colors hover:text-accent"
-                    >
-                      Detail &amp; verdict
-                      <span aria-hidden="true">→</span>
-                    </Link>
-                    <Link
-                      href={`/experiments/${exp.flag.key}/edit`}
-                      className="text-faint transition-colors hover:text-fg"
-                    >
-                      Edit
-                    </Link>
-                  </div>
-                  <ExperimentControls
-                    experimentKey={exp.flag.key}
-                    active={exp.flag.active}
-                    variant="card"
-                  />
-                </div>
-              </article>
-            );
-          })}
-        </section>
-      )}
-    </div>
-  );
+interface VerdictSummary {
+  available: boolean;
+  recommendation: Recommendation | null;
+  subline: string | null;
+  moneyValue: number | null;
+  moneyControl: number | null;
+  moneyDeltaAbs: number | null;
+  moneyDeltaRel: number | null;
+  guardrails: GuardrailFlag[];
 }
 
-function EmptyState() {
+const UNAVAILABLE: VerdictSummary = {
+  available: false,
+  recommendation: null,
+  subline: null,
+  moneyValue: null,
+  moneyControl: null,
+  moneyDeltaAbs: null,
+  moneyDeltaRel: null,
+  guardrails: [],
+};
+
+function gbp(n: number): string {
+  return `£${n.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function daysSince(iso: string): number {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return 0;
+  return Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
+}
+
+async function loadVerdict(exp: StoredExperiment): Promise<VerdictSummary> {
+  const outcome = await runResults(toRegistered(exp));
+  if (!outcome.available) return UNAVAILABLE;
+
+  let built;
+  try {
+    built = buildVerdict(outcome.rows);
+  } catch {
+    return UNAVAILABLE;
+  }
+
+  const rows = outcome.rows;
+  const control = rows.find((r) => r.isControl);
+  if (!control) return UNAVAILABLE;
+  const challenger = rows.find((r) => !r.isControl) ?? control;
+
+  const moneyValue = challenger.revPerAcquired;
+  const moneyControl = control.revPerAcquired;
+  const moneyDeltaAbs = moneyValue - moneyControl;
+  const moneyDeltaRel = moneyControl > 0 ? moneyDeltaAbs / moneyControl : 0;
+
+  // Subline: name the £ leader; if a challenger leads, carry its strongest
+  // driver's confidence label.
+  const revWinner = built.winners.find((w) => w.metric === "rev_per_acquired");
+  const controlLeads = !revWinner || revWinner.winner === built.controlVariant;
+  let subline: string;
+  if (controlLeads) {
+    subline = `control · ${gbp(moneyControl)}/acq`;
+  } else {
+    const driver = built.significance
+      .filter((s) => s.metric.endsWith(`· ${challenger.variant}`))
+      .sort((a, b) => a.p - b.p)[0];
+    subline = driver ? driver.label : "leads on £";
+  }
+
+  // Guardrail: a statistically significant NEGATIVE auth move on a variant.
+  const guardrails: GuardrailFlag[] = built.significance
+    .filter(
+      (s) =>
+        s.metric.startsWith("auth_rate") && s.significant && s.deltaPp < 0,
+    )
+    .map((s) => {
+      const arm = s.metric.split("· ")[1] ?? challenger.variant;
+      return {
+        experimentKey: exp.key,
+        arm,
+        detail: `auth ${(s.variantRate * 100).toFixed(1)}% vs control ${(s.controlRate * 100).toFixed(1)}% (${s.deltaPp.toFixed(1)}pp, ${s.label})`,
+      };
+    });
+
+  return {
+    available: true,
+    recommendation: built.recommendation,
+    subline,
+    moneyValue,
+    moneyControl,
+    moneyDeltaAbs,
+    moneyDeltaRel,
+    guardrails,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+export default async function HomePage() {
+  const [metrics, experiments, todayByKey] = await Promise.all([
+    homeMetrics(),
+    listExperiments(),
+    assignmentsTodayByExperiment(),
+  ]);
+
+  // Verdicts, fanned out over ACTIVE experiments only (bounds the prod query
+  // count; paused rows never need Metabase). Each degrades on its own.
+  const verdictByKey = new Map<string, VerdictSummary>();
+  await Promise.all(
+    experiments
+      .filter((e) => e.active)
+      .map(async (e) => verdictByKey.set(e.key, await loadVerdict(e))),
+  );
+
+  // Build the flat row view-models + collect banner conditions in one pass.
+  const guardrails: GuardrailFlag[] = [];
+  const noTraffic: NoTrafficFlag[] = [];
+  const rows: ExperimentRowVM[] = experiments.map((exp) => {
+    const summary = verdictByKey.get(exp.key) ?? UNAVAILABLE;
+    const todayCount = todayByKey[exp.key] ?? 0;
+    const daysRunning = daysSince(exp.startDate);
+
+    if (summary.available) guardrails.push(...summary.guardrails);
+    if (exp.active && todayCount === 0 && daysRunning >= 1) {
+      noTraffic.push({ experimentKey: exp.key, days: daysRunning });
+    }
+
+    return {
+      key: exp.key,
+      name: exp.name,
+      business: exp.business,
+      active: exp.active,
+      startDate: exp.startDate,
+      daysRunning,
+      todayCount,
+      split: exp.variants.map((v) => ({
+        key: v.key,
+        pct: v.rolloutPercentage,
+        isControl: v.isControl,
+      })),
+      controlKey: exp.controlVariant,
+      verdictAvailable: summary.available,
+      recommendation: summary.recommendation,
+      verdictSubline: summary.subline,
+      moneyValue: summary.moneyValue,
+      moneyControl: summary.moneyControl,
+      moneyDeltaAbs: summary.moneyDeltaAbs,
+      moneyDeltaRel: summary.moneyDeltaRel,
+    };
+  });
+
+  const businessOptions = [...new Set(experiments.map((e) => e.business))].sort();
+  const totalTests = experiments.length;
+
   return (
-    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-line-strong bg-bg-deep px-6 py-16 text-center">
-      <div className="mb-3 text-3xl" aria-hidden="true">
-        🌶
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="font-display text-2xl font-bold tracking-tight text-fg">
+              Experiments
+            </h1>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-good/30 bg-good/10 px-2.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-good">
+              <span className="size-1.5 rounded-full bg-good" aria-hidden="true" />
+              Live
+            </span>
+          </div>
+          <p className="mt-1.5 font-mono text-xs text-faint">
+            {totalTests} {totalTests === 1 ? "test" : "tests"} across{" "}
+            {businessOptions.length}{" "}
+            {businessOptions.length === 1 ? "business" : "businesses"} ·{" "}
+            {metrics.activeTests} active · updated just now
+          </p>
+        </div>
+        <Link href="/experiments/new" className="btn-primary">
+          + New test
+        </Link>
       </div>
-      <h2 className="font-display text-lg font-semibold text-fg">
-        No experiments yet
-      </h2>
-      <p className="mt-1.5 max-w-sm text-sm text-muted">
-        Create your first experiment to start assigning variants and measuring
-        the payment-P&amp;L verdict.
-      </p>
-      <Link href="/experiments/new" className="btn-primary mt-5">
-        + New experiment
-      </Link>
+
+      <KpiStrip metrics={metrics} />
+
+      <AlertBanners guardrails={guardrails} noTraffic={noTraffic} />
+
+      <ExperimentTable rows={rows} businesses={businessOptions} />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <LiveEventsPanel feed={metrics.feed} />
+        <AssignmentsPanel byBusiness={metrics.byBusiness} />
+      </div>
     </div>
   );
 }
