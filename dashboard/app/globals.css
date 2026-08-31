@@ -295,15 +295,43 @@ body {
     line-height: 1.25rem;
     font-weight: 600;
     transition:
-      background-color 0.12s var(--ease-smooth),
+      filter 0.12s var(--ease-smooth),
       opacity 0.12s var(--ease-smooth);
   }
+  /* Hover: a subtle brightness lift only — flat, no translate/scale, no glow. */
   .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+  /* Press: dim slightly (Cockpit press = opacity 0.9). */
+  .btn-primary:active:not(:disabled) {
     opacity: 0.9;
   }
   .btn-primary:disabled {
     cursor: not-allowed;
     opacity: 0.4;
+  }
+
+  /* Clickable card — the whole card is a navigation target. Hover brightens its
+     border to --line-strong and lifts the surface to --surface-hover. No
+     translate, no shadow (Cockpit: cards don't lift). Pair with `group` so a
+     title inside can also go `group-hover:text-accent`. */
+  .card-clickable {
+    transition:
+      border-color 0.12s var(--ease-smooth),
+      background-color 0.12s var(--ease-smooth);
+  }
+  .card-clickable:hover {
+    border-color: var(--color-line-strong);
+    background-color: var(--color-surface-hover);
+  }
+
+  /* Scannable list row — hover lifts the row to --surface-hover so the row under
+     the cursor reads without a heavy divider. */
+  .row-clickable {
+    transition: background-color 0.12s var(--ease-smooth);
+  }
+  .row-clickable:hover {
+    background-color: var(--color-surface-hover);
   }
 }
 

@@ -107,9 +107,9 @@ export function ImportVwoForm() {
         type="button"
         onClick={onImport}
         disabled={pending || json.trim().length === 0}
-        className={`rounded-lg px-5 py-2.5 font-display text-sm font-semibold transition-all duration-200 ease-expo ${
+        className={`rounded-lg px-5 py-2.5 font-display text-sm font-semibold transition duration-[120ms] ease-smooth ${
           !pending && json.trim().length > 0
-            ? "bg-accent text-bg hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-8px_rgba(0,229,160,0.45)]"
+            ? "bg-accent text-bg hover:brightness-110 active:opacity-90"
             : "cursor-not-allowed bg-bg text-faint"
         }`}
       >

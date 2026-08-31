@@ -127,7 +127,7 @@ function TicketRow({ t }: { t: BacklogTicket }) {
   };
   return (
     <li
-      className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-bg/40"
+      className="row-clickable flex items-start gap-3 px-4 py-3"
       title={t.description || t.summary}
     >
       <TicketStatePill resolved={t.resolved} />

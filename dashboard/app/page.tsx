@@ -63,7 +63,7 @@ export default async function HomePage() {
             return (
               <article
                 key={exp.flag.key}
-                className="group relative flex flex-col overflow-hidden rounded-xl border border-line bg-bg-deep p-5 transition-all duration-300 ease-expo hover:-translate-y-0.5 hover:border-accent hover:bg-surface-hover"
+                className="card-clickable group relative flex flex-col overflow-hidden rounded-xl border border-line bg-bg-deep p-5"
               >
                 {/* Oversized faded index — editorial signature. */}
                 <span

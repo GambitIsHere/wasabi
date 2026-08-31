@@ -19,11 +19,20 @@ export const metadata: Metadata = {
     "Wasabi is Sanjow's in-house, PostHog-compatible experimentation engine: sticky variant assignment plus a payment-P&L verdict on every test.",
 };
 
+// Runs synchronously in <head> before first paint: reads the persisted theme
+// choice and forces data-theme for an explicit light/dark pick. A "system" or
+// missing value sets nothing, so the CSS prefers-color-scheme query resolves the
+// theme — this is the device-preference default. Prevents a light/dark flash.
+const THEME_INIT = `(function(){try{var t=localStorage.getItem("wasabi-theme");if(t==="light"||t==="dark"){document.documentElement.setAttribute("data-theme",t);}}catch(e){}})();`;
+
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={mono.variable}>
+    <html lang="en" className={mono.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
+      </head>
       <body className="min-h-screen antialiased">
         {/* Flat hairline (Cockpit: no gradients). */}
         <div className="h-px w-full bg-line" aria-hidden="true" />

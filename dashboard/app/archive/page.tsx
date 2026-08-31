@@ -134,7 +134,7 @@ export default async function ArchivePage() {
           </p>
           <Link
             href="/admin/import-vwo"
-            className="mt-5 inline-block rounded-lg bg-accent px-5 py-2.5 font-display text-sm font-semibold text-bg transition-transform hover:-translate-y-0.5"
+            className="mt-5 inline-block rounded-lg bg-accent px-5 py-2.5 font-display text-sm font-semibold text-bg transition duration-[120ms] ease-smooth hover:brightness-110 active:opacity-90"
           >
             Import from VWO
           </Link>

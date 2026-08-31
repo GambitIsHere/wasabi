@@ -5,6 +5,7 @@
 // stays server-rendered.
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const LINKS = [
   { href: "/", label: "Experiments" },
@@ -26,7 +27,7 @@ export function SiteNav() {
             href={l.href}
             aria-current={active ? "page" : undefined}
             className={`relative rounded-md px-3 py-1.5 transition-colors ${
-              active ? "text-fg" : "text-muted hover:text-fg"
+              active ? "text-fg" : "text-muted hover:text-accent"
             }`}
           >
             {l.label}
@@ -49,6 +50,7 @@ export function SiteNav() {
         /api/flags <span aria-hidden="true">↗</span>
         <span className="sr-only">(opens in new tab)</span>
       </a>
+      <ThemeToggle />
     </nav>
   );
 }

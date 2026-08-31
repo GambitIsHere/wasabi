@@ -69,9 +69,9 @@ export function ReseedButton() {
         type="button"
         onClick={onRun}
         disabled={!armed || pending}
-        className={`rounded-lg px-5 py-2.5 font-display text-sm font-semibold transition-all duration-200 ease-expo ${
+        className={`rounded-lg px-5 py-2.5 font-display text-sm font-semibold transition duration-[120ms] ease-smooth ${
           armed && !pending
-            ? "bg-bad text-bg hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-8px_rgba(220,38,38,0.45)]"
+            ? "bg-bad text-bg hover:brightness-110 active:opacity-90"
             : "cursor-not-allowed bg-bg text-faint"
         }`}
       >
