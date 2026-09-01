@@ -8,13 +8,49 @@
 // response contract — `{ status: 1 }`, the 204 OPTIONS, the permissive CORS — is
 // byte-for-byte unchanged. This endpoint is public + unauthenticated and called
 // cross-origin by storefronts, so nothing here may throw back to the caller.
+//
+// Gating: this endpoint feeds the cockpit's live-events feed and home metrics,
+// so an open, unbounded write is a real way to poison those numbers. Two
+// independent guards, both fail-open toward "don't break a storefront":
+//   - Shared-secret key (WASABI_INGEST_KEY, header `x-wasabi-key`). When SET, a
+//     mismatched or missing header gets 401. When UNSET, every request still
+//     gets accepted (today's behaviour, unchanged) but a one-time-per-warm-
+//     instance console.warn keeps the gap visible instead of silent.
+//   - Per-IP token-bucket rate limit (lib/rate-limit.ts): ~60 events/minute/IP,
+//     applied either way (key set or not) — a valid key doesn't exempt a
+//     caller from the rate limit. Returns 429 when exceeded. Checked BEFORE
+//     the key so a flood of guesses against the key is capped too, not just a
+//     flood of already-authorized events. In-memory and therefore
+//     per-serverless-instance, not a global cap — see lib/rate-limit.ts.
 import { NextResponse } from "next/server";
 import { handleCapture } from "@/lib/engine/handlers";
 import { persistEvent, type EventKind } from "@/lib/events";
+import { getClientIp } from "@/lib/get-client-ip";
+import { perMinute, takeToken } from "@/lib/rate-limit";
 import type { CaptureRequest } from "@/lib/engine/wire";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const INGEST_KEY = process.env.WASABI_INGEST_KEY?.trim() || "";
+const INGEST_KEY_CONFIGURED = INGEST_KEY.length > 0;
+
+// Full burst of 60 available immediately (a page can fire several events on
+// load), refilling at a steady 1/sec — matches "~60 events/minute/IP".
+const CAPTURE_RATE_LIMIT = { capacity: 60, refillPerMs: perMinute(60) };
+
+let warnedUngated = false;
+/** Logs the "this endpoint is wide open" warning once per warm instance. */
+function warnIfUngated(): void {
+  if (INGEST_KEY_CONFIGURED || warnedUngated) return;
+  warnedUngated = true;
+  console.warn(
+    "[capture] WASABI_INGEST_KEY is not set — /api/capture accepts events from anyone who " +
+      "knows the URL, unauthenticated (rate-limited only). Set WASABI_INGEST_KEY (see " +
+      ".env.example) to require a matching x-wasabi-key header. This warning logs once per " +
+      "warm instance, not once per request.",
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Property parsing — tolerant, because the storefront SDK is external to this
@@ -91,6 +127,24 @@ export function OPTIONS(): NextResponse {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
+  if (!takeToken(getClientIp(request), CAPTURE_RATE_LIMIT)) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded" },
+      { status: 429, headers: CORS_HEADERS },
+    );
+  }
+
+  if (INGEST_KEY_CONFIGURED) {
+    if (request.headers.get("x-wasabi-key") !== INGEST_KEY) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401, headers: CORS_HEADERS },
+      );
+    }
+  } else {
+    warnIfUngated();
+  }
+
   let body: Partial<CaptureRequest>;
   try {
     body = (await request.json()) as Partial<CaptureRequest>;

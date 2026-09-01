@@ -120,6 +120,10 @@ export function EditableRunway({
   const [ghost, setGhost] = useState<Ghost | null>(null);
   const [over, setOver] = useState<OverCell | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The id of the tile currently being dragged, if any — the rendered slice of
+  // drag state (drives styling), kept separate from dragRef's high-frequency
+  // positional data so reading it during render is safe and tracked by React.
+  const [draggedId, setDraggedId] = useState<string | null>(null);
 
   const dragRef = useRef<DragState | null>(null);
   // One controller per active drag; abort() removes all three window listeners
@@ -142,6 +146,38 @@ export function EditableRunway({
   // onDrop closes over `lanes`, so keep a ref to the latest version that the
   // stable window listeners can call without going stale.
   const onDropRef = useRef<(t: Lane, w: number, id: string) => void>(() => {});
+
+  // Declared before onDrop (its only caller) so it's not a forward reference —
+  // function declarations hoist at runtime either way, but lexical order also
+  // needs to be respected here.
+  async function persist(
+    body: {
+      id: string;
+      lane: Lane;
+      startWeek: number;
+      endWeek: number;
+      position: number;
+    },
+    rollback: RoadmapLane[],
+  ) {
+    try {
+      const res = await fetch("/api/admin/roadmap", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as
+          | { reason?: string }
+          | null;
+        setLanes(rollback);
+        setError(data?.reason ?? `Save failed (${res.status}). The move was undone.`);
+      }
+    } catch {
+      setLanes(rollback);
+      setError("Could not reach the server. The move was undone.");
+    }
+  }
 
   const onDrop = useCallback(
     (targetLane: Lane, targetWeek: number, id: string) => {
@@ -201,36 +237,12 @@ export function EditableRunway({
     },
     [lanes],
   );
-  onDropRef.current = onDrop;
 
-  async function persist(
-    body: {
-      id: string;
-      lane: Lane;
-      startWeek: number;
-      endWeek: number;
-      position: number;
-    },
-    rollback: RoadmapLane[],
-  ) {
-    try {
-      const res = await fetch("/api/admin/roadmap", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as
-          | { reason?: string }
-          | null;
-        setLanes(rollback);
-        setError(data?.reason ?? `Save failed (${res.status}). The move was undone.`);
-      }
-    } catch {
-      setLanes(rollback);
-      setError("Could not reach the server. The move was undone.");
-    }
-  }
+  // Keep the ref in sync with the latest onDrop after each commit — not during
+  // render, so a ref is never written while React is rendering.
+  useEffect(() => {
+    onDropRef.current = onDrop;
+  }, [onDrop]);
 
   // Tear the current drag down: clear state and remove all window listeners at
   // once via the abort controller. Stable, and referenced by every handler.
@@ -238,6 +250,7 @@ export function EditableRunway({
     dragRef.current = null;
     setGhost(null);
     setOver(null);
+    setDraggedId(null);
     listenersRef.current?.abort();
     listenersRef.current = null;
   }, []);
@@ -251,6 +264,7 @@ export function EditableRunway({
         return;
       }
       d.active = true;
+      setDraggedId(d.id);
     }
     e.preventDefault();
     setGhost({
@@ -385,7 +399,7 @@ export function EditableRunway({
                     while a drag is in flight so elementFromPoint sees the cell beneath. */}
                 {(lane?.tests ?? []).map((t) => {
                   const id = roadmapTestId(t);
-                  const isDragged = dragging && dragRef.current?.id === id;
+                  const isDragged = dragging && draggedId === id;
                   const barStyle: CSSProperties = {
                     gridRow: li + 2,
                     gridColumn: `${t.startWeek + 1} / ${t.endWeek + 2}`,

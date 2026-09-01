@@ -45,8 +45,9 @@ The PostHog-compatible assignment core and the verdict logic are **copied** into
 | `/api/experiments/[key]/results` | GET | `key` | `{ available, rows?, verdict?, reason? }` |
 
 `/api/decide` and `/api/capture` are CORS-permissive so storefronts can call
-them from the browser. `/capture` logs to an in-memory array (fine for the
-spike — resets per server process).
+them from the browser. `/capture` persists one row per event to the `event`
+table (Neon), rate-limited to ~60 events/minute/IP and, when
+`WASABI_INGEST_KEY` is set, gated behind a matching `x-wasabi-key` header.
 
 ## Run locally
 
@@ -83,6 +84,7 @@ npm run lint
 | --- | --- | --- |
 | `METABASE_URL` | for live results | Base URL of the Metabase instance fronting the global-api Postgres ("MAIN DB - Production"). No trailing slash. e.g. `https://metabase.paynova.app`. |
 | `METABASE_API_KEY` | for live results | Metabase API key with read access to "MAIN DB - Production". |
+| `WASABI_INGEST_KEY` | optional | Shared secret for `POST /api/capture`. When set, requests must send it back as the `x-wasabi-key` header (401 otherwise). When unset, the endpoint keeps accepting every request but logs a one-time warning. |
 
 **Graceful degradation:** when `METABASE_API_KEY` is unset, the results route
 returns `{ available: false, reason: "METABASE_API_KEY not configured" }` and

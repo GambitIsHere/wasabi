@@ -65,13 +65,20 @@ export async function handleDecide(req: DecideRequest): Promise<DecideResponse> 
 /**
  * POST /capture — accepts a PostHog-shaped event and acks `{ status: 1 }`.
  *
- * IMPORTANT: this is a PUBLIC, UNAUTHENTICATED endpoint and currently does NOT
- * persist anywhere. Experiment RESULTS are computed from the global-api payment
- * DB (via Metabase), keyed by theme slug — NOT from these events. We keep the
- * endpoint for PostHog wire-compatibility and log for debugging, but we don't
- * buffer in memory (on serverless that's per-instance and lost — it would only
- * leak memory). Before relying on captured events, wire this to a real sink
- * (a Neon table or PostHog) AND add rate-limiting, since it's unauthenticated.
+ * This function itself stays transport-agnostic and side-effect-free (log +
+ * ack) — the actual persistence lives one layer up, in the route handler
+ * (app/api/capture/route.ts), which calls this and then writes one row to the
+ * `event` table via lib/events.ts (fail-open: a DB hiccup never fails the
+ * caller's ack). That table is the ASSIGNMENT side of the live cockpit feed —
+ * who landed in which arm, and when. Experiment RESULTS (auth / rebill /
+ * revenue) still come from the global-api payment DB via Metabase, keyed by
+ * theme slug, never from these events.
+ *
+ * The route is PUBLIC and CORS-permissive (storefronts call it cross-origin),
+ * so it is gated there rather than here: an optional shared-secret key
+ * (WASABI_INGEST_KEY / `x-wasabi-key`) and a per-IP token-bucket rate limit
+ * (~60 events/minute/IP) apply before this function is ever called. See the
+ * route file for both.
  */
 export function handleCapture(req: CaptureRequest): CaptureResponse {
   const timestamp = req.timestamp ?? new Date().toISOString();

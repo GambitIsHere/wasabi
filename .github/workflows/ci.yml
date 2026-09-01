@@ -1,0 +1,87 @@
+# ============================================================================
+# Wasabi dashboard CI.
+# ----------------------------------------------------------------------------
+# Wasabi assigns real traffic and computes payment-P&L verdicts people act on,
+# so every push and PR gets the same four gates in order: typecheck -> lint ->
+# test -> build. Fail fast — a typo shouldn't wait for a full Next.js build to
+# report.
+#
+# Scope: this repo also carries a dead Java fork carcass at the root
+# (modules/, pom.xml, bin/, contrib/, repository/) — see the root CLAUDE.md.
+# `paths:` below is an ALLOW-list of the two trees CI actually cares about, so
+# that carcass (and docs/, deploy/, decision-helper/, etc.) never triggers a
+# run. engine/src/** is included even though the build only touches
+# dashboard/ — the engine-copy-sameness test (dashboard/lib/engine/
+# engine-copy-sameness.test.ts, see CLAUDE.md item A6) reads engine/src
+# directly, so a change ONLY under engine/src/ must still run CI or that
+# guard would never fire on the PR that could break it.
+# ============================================================================
+name: CI
+
+on:
+  push:
+    paths:
+      - "dashboard/**"
+      - "engine/src/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths:
+      - "dashboard/**"
+      - "engine/src/**"
+      - ".github/workflows/ci.yml"
+
+# A new push to the same branch/PR supersedes the in-flight run instead of
+# queuing behind it.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  dashboard:
+    name: Typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Node 24 matches the Vercel runtime this app deploys to (see
+      # dashboard/README.md: "Deploys to Vercel (Node 24)").
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      # Dummy values only — the build never needs a live database or a real
+      # Google OAuth app. Every /api/* route is `export const dynamic =
+      # "force-dynamic"` (see e.g. app/api/capture/route.ts), so Next never
+      # executes a DB query or an auth call during `next build`; these values
+      # just need to be PRESENT so lib/db.ts's connectionString() and
+      # next-auth's Google provider don't throw while the module graph loads.
+      - name: Build
+        run: npm run build
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/wasabi_ci
+          AUTH_SECRET: ci-only-dummy-secret-this-is-not-a-real-credential
+          AUTH_GOOGLE_ID: ci-dummy-google-id
+          AUTH_GOOGLE_SECRET: ci-dummy-google-secret
+          AUTH_ALLOWED_EMAIL_DOMAIN: sanjow.com

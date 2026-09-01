@@ -9,6 +9,7 @@
 // push the change to an already-populated DB.
 // ============================================================================
 import type { ExperimentInput } from "./mgmt";
+import type { MetricInput } from "./metrics";
 
 export const SEED: ExperimentInput[] = [
   // ─── SAMPLE TESTS (active) ───────────────────────────────────────────────
@@ -100,3 +101,109 @@ export const SEED_PAUSED = new Set<string>([
   "pdf-price-49-19",
   "gt-booking-fee",
 ]);
+
+// ============================================================================
+// Canonical seed metrics — lib/metrics.ts's registry, seeded once on an empty
+// `metric` table (see ensureMetricsReady() there), same "seed only when empty
+// so a deleted/disabled seed doesn't reappear" rule as SEED above.
+// ----------------------------------------------------------------------------
+// The first three keys (auth_rate, rebill_rate, rev_per_acquired) are NOT
+// arbitrary — they are the exact metric keys the pre-registry code hardcoded
+// in lib/verdict.ts, lib/metabase.ts's VariantRow, and
+// components/LiveResults.tsx. Keeping the same keys, same numerator/
+// denominator/value fields, and same direction means buildVerdict() produces
+// byte-identical winners/significance for these three, so the (untouched
+// this batch) results UI keeps rendering them exactly as before. The other
+// three (apps_acquired, net_revenue, break_even_cac) surface P&L fields the
+// results table already displays directly off VariantRow — this just makes
+// them registry metrics too, so a future batch can render them generically.
+// ============================================================================
+export const SEED_METRICS: MetricInput[] = [
+  {
+    key: "auth_rate",
+    label: "Auth rate",
+    description: "First-payment success rate — paid ÷ (paid + failed).",
+    kind: "ratio",
+    direction: "higher_is_better",
+    unit: "percent",
+    numeratorField: "firstPaid",
+    denominatorField: "firstPaid+firstFailed",
+    decimals: 1,
+    isGoal: true,
+    showInTable: true,
+    displayOrder: 10,
+    enabled: true,
+  },
+  {
+    key: "rebill_rate",
+    label: "Rebill rate",
+    description: "Renewal success rate — rebill ÷ (rebill + rebill_failed).",
+    kind: "ratio",
+    direction: "higher_is_better",
+    unit: "percent",
+    numeratorField: "rebillOk",
+    denominatorField: "rebillOk+rebillFail",
+    decimals: 1,
+    isGoal: true,
+    showInTable: true,
+    displayOrder: 20,
+    enabled: true,
+  },
+  {
+    key: "rev_per_acquired",
+    label: "Revenue per acquired",
+    description: "Cash collected ÷ apps acquired — the £ verdict per arm.",
+    kind: "continuous",
+    direction: "higher_is_better",
+    unit: "currency",
+    valueField: "revPerAcquired",
+    decimals: 2,
+    isGoal: true,
+    showInTable: true,
+    displayOrder: 30,
+    enabled: true,
+  },
+  {
+    key: "apps_acquired",
+    label: "Apps acquired",
+    description:
+      "Distinct applications acquired in the cohort — the conversion count (stands in for GOAL_METRICS' \"conversion\" choice).",
+    kind: "sum",
+    direction: "higher_is_better",
+    unit: "count",
+    valueField: "appsAcquired",
+    decimals: 0,
+    isGoal: true,
+    showInTable: true,
+    displayOrder: 40,
+    enabled: true,
+  },
+  {
+    key: "net_revenue",
+    label: "Net revenue",
+    description: "Revenue − refunds − chargebacks.",
+    kind: "sum",
+    direction: "higher_is_better",
+    unit: "currency",
+    valueField: "netRevenueGbp",
+    decimals: 2,
+    isGoal: false,
+    showInTable: true,
+    displayOrder: 50,
+    enabled: true,
+  },
+  {
+    key: "break_even_cac",
+    label: "Break-even CAC",
+    description: "Net revenue ÷ apps acquired — the most you can pay per acquisition.",
+    kind: "continuous",
+    direction: "higher_is_better",
+    unit: "currency",
+    valueField: "breakEvenCacGbp",
+    decimals: 2,
+    isGoal: false,
+    showInTable: true,
+    displayOrder: 60,
+    enabled: true,
+  },
+];

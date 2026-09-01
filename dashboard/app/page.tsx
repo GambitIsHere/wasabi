@@ -15,6 +15,8 @@ import { homeMetrics, assignmentsTodayByExperiment } from "@/lib/home";
 import { listExperiments, toRegistered } from "@/lib/store";
 import { runResults } from "@/lib/metabase";
 import { buildVerdict } from "@/lib/verdict";
+import { getMetrics } from "@/lib/metrics";
+import type { MetricDef } from "@/lib/metrics";
 import type { StoredExperiment } from "@/lib/mgmt";
 import type { Recommendation } from "@/lib/verdict";
 import { KpiStrip } from "@/components/home/KpiStrip";
@@ -69,13 +71,13 @@ function daysSince(iso: string): number {
   return Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
 }
 
-async function loadVerdict(exp: StoredExperiment): Promise<VerdictSummary> {
+async function loadVerdict(exp: StoredExperiment, metrics: MetricDef[]): Promise<VerdictSummary> {
   const outcome = await runResults(toRegistered(exp));
   if (!outcome.available) return UNAVAILABLE;
 
   let built;
   try {
-    built = buildVerdict(outcome.rows);
+    built = buildVerdict(outcome.rows, metrics);
   } catch {
     return UNAVAILABLE;
   }
@@ -104,11 +106,14 @@ async function loadVerdict(exp: StoredExperiment): Promise<VerdictSummary> {
     subline = driver ? driver.label : "leads on £";
   }
 
-  // Guardrail: a statistically significant NEGATIVE auth move on a variant.
+  // Guardrail: a statistically significant WORSENING auth move on a variant.
+  // Direction-aware (s.improvement, not a raw "deltaPp < 0" sign check) so
+  // this stays correct if auth_rate's direction — or a future guardrail
+  // metric's — is ever lower_is_better; see lib/verdict.ts's Direction fix.
   const guardrails: GuardrailFlag[] = built.significance
     .filter(
       (s) =>
-        s.metric.startsWith("auth_rate") && s.significant && s.deltaPp < 0,
+        s.metric.startsWith("auth_rate") && s.significant && !s.improvement,
     )
     .map((s) => {
       const arm = s.metric.split("· ")[1] ?? challenger.variant;
@@ -136,10 +141,11 @@ async function loadVerdict(exp: StoredExperiment): Promise<VerdictSummary> {
 // ---------------------------------------------------------------------------
 
 export default async function HomePage() {
-  const [metrics, experiments, todayByKey] = await Promise.all([
+  const [metrics, experiments, todayByKey, metricDefs] = await Promise.all([
     homeMetrics(),
     listExperiments(),
     assignmentsTodayByExperiment(),
+    getMetrics(),
   ]);
 
   // Verdicts, fanned out over ACTIVE experiments only (bounds the prod query
@@ -148,7 +154,7 @@ export default async function HomePage() {
   await Promise.all(
     experiments
       .filter((e) => e.active)
-      .map(async (e) => verdictByKey.set(e.key, await loadVerdict(e))),
+      .map(async (e) => verdictByKey.set(e.key, await loadVerdict(e, metricDefs))),
   );
 
   // Build the flat row view-models + collect banner conditions in one pass.

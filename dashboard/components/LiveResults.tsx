@@ -7,14 +7,30 @@
 // comparison chart, the per-variant P&L table (now with net revenue, break-even
 // CAC, and ad metrics, currency-aware), the significance tests, winners, the
 // verdict pill + narrative.
+//
+// REGISTRY-DRIVEN (this batch): the results API now rides the MetricDef[]
+// registry alongside rows/verdict (see the results route) — WinnersGrid and
+// PerVariantTable read labels/units/decimals off it instead of a hardcoded
+// 3-key map. THE REGRESSION THIS FIXES: the previous batch grew the registry
+// from 3 metrics to 6 (auth_rate, rebill_rate, rev_per_acquired, plus
+// apps_acquired, net_revenue, break_even_cac) but left this file untouched —
+// WinnersGrid rendered a blank label for the 3 new metrics and formatted every
+// value as a percent (a £950,903.46 net-revenue figure showed as
+// "950903.5%"). Fixed by rendering off `def` (the metric's own MetricDef) via
+// lib/format-metric.ts's formatMetric — one formatter, every surface, unit-
+// and decimals-aware — instead of assuming "percent unless rev_per_acquired".
 import { useEffect, useState } from "react";
-import type { VariantRow, Verdict, SignificanceTest } from "@/lib/verdict";
+import type { VariantRow, Verdict, SignificanceTest, UnavailableSignificance } from "@/lib/verdict";
+import type { MetricDef } from "@/lib/metrics-core";
+import { metricValue, isImprovement } from "@/lib/metrics-core";
+import { formatMetric, formatRelativeDelta } from "@/lib/format-metric";
 import { VerdictPill, ControlBadge } from "@/components/pills";
 
 interface ResultsBody {
   available: boolean;
   rows?: VariantRow[];
   verdict?: Verdict;
+  metrics?: MetricDef[];
   reason?: string;
 }
 
@@ -22,7 +38,7 @@ type FetchState =
   | { status: "loading" }
   | { status: "empty"; reason: string }
   | { status: "error"; message: string }
-  | { status: "ready"; rows: VariantRow[]; verdict: Verdict };
+  | { status: "ready"; rows: VariantRow[]; verdict: Verdict; metrics: MetricDef[] };
 
 interface Props {
   experimentKey: string;
@@ -41,7 +57,16 @@ export function LiveResults({ experimentKey }: Props) {
         const body = (await res.json()) as ResultsBody;
         if (cancelled) return;
         if (body.available && body.rows && body.verdict) {
-          setState({ status: "ready", rows: body.rows, verdict: body.verdict });
+          // metrics defaults to [] rather than being required: a response from
+          // a server a half-step behind this client (mid-deploy) still renders
+          // — winner/table cells for metrics it can't label simply degrade to
+          // being skipped, never a crash (see WinnersGrid/PerVariantTable below).
+          setState({
+            status: "ready",
+            rows: body.rows,
+            verdict: body.verdict,
+            metrics: body.metrics ?? [],
+          });
         } else {
           setState({
             status: "empty",
@@ -89,7 +114,7 @@ export function LiveResults({ experimentKey }: Props) {
       ) : state.status === "empty" ? (
         <ResultsEmpty reason={state.reason} />
       ) : (
-        <ResultsReady rows={state.rows} verdict={state.verdict} />
+        <ResultsReady rows={state.rows} verdict={state.verdict} metrics={state.metrics} />
       )}
     </div>
   );
@@ -118,7 +143,15 @@ function signed(n: number, unit: "pp" | "£" | "%") {
 // Ready state
 // ---------------------------------------------------------------------------
 
-function ResultsReady({ rows, verdict }: { rows: VariantRow[]; verdict: Verdict }) {
+function ResultsReady({
+  rows,
+  verdict,
+  metrics,
+}: {
+  rows: VariantRow[];
+  verdict: Verdict;
+  metrics: MetricDef[];
+}) {
   // Experiment display currency — the dominant transacted currency across arms.
   const expCcy = rows.find((r) => r.currency)?.currency;
   const hasAds = rows.some((r) => (r.adClicks ?? 0) > 0);
@@ -145,9 +178,13 @@ function ResultsReady({ rows, verdict }: { rows: VariantRow[]; verdict: Verdict 
 
       <FunnelSection rows={rows} hasAds={hasAds} />
       <RevChart rows={rows} verdict={verdict} ccy={expCcy} />
-      <PerVariantTable rows={rows} verdict={verdict} ccy={expCcy} hasAds={hasAds} />
-      <SignificanceTable significance={verdict.significance} />
-      <WinnersGrid verdict={verdict} ccy={expCcy} />
+      <PerVariantTable rows={rows} verdict={verdict} metrics={metrics} ccy={expCcy} hasAds={hasAds} />
+      <SignificanceTable
+        significance={verdict.significance}
+        unavailable={verdict.unavailableSignificance}
+        metrics={metrics}
+      />
+      <WinnersGrid verdict={verdict} metrics={metrics} ccy={expCcy} />
       <Narrative narrative={verdict.narrative} />
     </div>
   );
@@ -294,15 +331,26 @@ function RevChart({
 function PerVariantTable({
   rows,
   verdict,
+  metrics,
   ccy,
   hasAds,
 }: {
   rows: VariantRow[];
   verdict: Verdict;
+  metrics: MetricDef[];
   ccy?: string;
   hasAds: boolean;
 }) {
   const revWinner = verdict.winners.find((w) => w.metric === "rev_per_acquired")?.winner;
+  // Columns = registry metrics flagged for the table, display-ordered. Never a
+  // hardcoded <th> list — this is exactly what broke when the registry grew
+  // past 3 metrics (see this file's header) and it is what lets an admin's new
+  // metric (app/admin/metrics) show up here with zero code changes.
+  const tableMetrics = metrics
+    .filter((m) => m.showInTable)
+    .slice()
+    .sort((a, b) => a.displayOrder - b.displayOrder || a.key.localeCompare(b.key));
+
   return (
     <section className="rounded-xl border border-line bg-surface">
       <header className="border-b border-line px-5 py-3">
@@ -318,12 +366,16 @@ function PerVariantTable({
             <tr className="text-left font-mono text-[11px] uppercase tracking-wider text-muted">
               <th scope="col" className="px-5 py-2.5 font-medium">Variant</th>
               {hasAds && <th scope="col" className="px-3 py-2.5 text-right font-medium">Clicks</th>}
-              <th scope="col" className="px-3 py-2.5 text-right font-medium">Apps</th>
-              <th scope="col" className="px-3 py-2.5 text-right font-medium">Auth %</th>
-              <th scope="col" className="px-3 py-2.5 text-right font-medium">Rebill %</th>
-              <th scope="col" className="px-3 py-2.5 text-right font-medium">Net rev (GBP)</th>
-              <th scope="col" className="px-3 py-2.5 text-right font-medium">Break-even CAC</th>
-              <th scope="col" className="px-5 py-2.5 text-right font-medium">Rev / acq</th>
+              {tableMetrics.map((m, i) => (
+                <th
+                  key={m.key}
+                  scope="col"
+                  title={m.description || undefined}
+                  className={`text-right font-medium ${i === tableMetrics.length - 1 ? "px-5 py-2.5" : "px-3 py-2.5"}`}
+                >
+                  {m.label}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -345,22 +397,22 @@ function PerVariantTable({
                       {intl(r.adClicks)}
                     </td>
                   )}
-                  <td className="px-3 py-3 text-right tabular-nums text-muted">
-                    {intl(r.appsAcquired)}
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-muted">{pct(r.authRate)}</td>
-                  <td className="px-3 py-3 text-right tabular-nums text-muted">{pct(r.rebillRate)}</td>
-                  <td className="px-3 py-3 text-right tabular-nums text-muted">
-                    {money(r.netRevenueGbp ?? r.revenueGbp, "GBP")}
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-muted">
-                    {money(r.breakEvenCacGbp, "GBP")}
-                  </td>
-                  <td
-                    className={`px-5 py-3 text-right font-semibold tabular-nums ${isRevWinner ? "text-accent" : "text-fg"}`}
-                  >
-                    {money(r.revPerAcquiredNative ?? r.revPerAcquired, r.currency ?? ccy)}
-                  </td>
+                  {tableMetrics.map((m, i) => {
+                    // The money metric gets the same "this row leads" accent it
+                    // always has — rev_per_acquired is a deliberate, documented
+                    // exception throughout this codebase (see lib/verdict.ts's
+                    // buildVerdict header), not a new hardcoded special case.
+                    const emphasize = m.key === "rev_per_acquired" && isRevWinner;
+                    const edge = i === tableMetrics.length - 1 ? "px-5" : "px-3";
+                    return (
+                      <td
+                        key={m.key}
+                        className={`${edge} py-3 text-right tabular-nums ${emphasize ? "font-semibold text-accent" : "text-muted"}`}
+                      >
+                        {formatMetric(m, metricValue(m, r), r.currency ?? ccy)}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}
@@ -372,93 +424,149 @@ function PerVariantTable({
 }
 
 // ---------------------------------------------------------------------------
-// Significance (unchanged)
+// Significance — columns unchanged; colouring is now direction-aware
+// (t.improvement, not a raw deltaPp>=0 sign check — see lib/metrics.ts's
+// isImprovement doc comment for why a raw sign check is wrong for a
+// lower_is_better metric). Also surfaces `unavailable` honestly: metrics with
+// a winner but no significance test (continuous metrics — VariantRow carries
+// only per-arm aggregates, no per-user variance; see lib/verdict.ts).
 // ---------------------------------------------------------------------------
 
-function SignificanceTable({ significance }: { significance: SignificanceTest[] }) {
-  if (significance.length === 0) return null;
+function SignificanceTable({
+  significance,
+  unavailable,
+  metrics,
+}: {
+  significance: SignificanceTest[];
+  unavailable: UnavailableSignificance[];
+  metrics: MetricDef[];
+}) {
+  if (significance.length === 0 && unavailable.length === 0) return null;
+  const labelOf = (key: string) => metrics.find((m) => m.key === key)?.label ?? key;
+
+  // Group the unavailable metrics by their reason, in case a future metric
+  // kind ever has a different one — today every continuous metric shares the
+  // same CONTINUOUS_SIGNIFICANCE_UNAVAILABLE_REASON, so this is one line.
+  const byReason = new Map<string, string[]>();
+  for (const u of unavailable) {
+    const labels = byReason.get(u.reason) ?? [];
+    labels.push(labelOf(u.metric));
+    byReason.set(u.reason, labels);
+  }
+
   return (
     <section className="rounded-xl border border-line bg-surface">
       <header className="border-b border-line px-5 py-3">
         <h3 className="font-display text-sm font-semibold text-fg">Significance vs control</h3>
         <p className="mt-0.5 text-xs text-faint">Two-proportion z-test, two-tailed.</p>
       </header>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] text-sm">
-          <thead>
-            <tr className="text-left font-mono text-[11px] uppercase tracking-wider text-muted">
-              <th scope="col" className="px-5 py-2.5 font-medium">Metric · variant</th>
-              <th scope="col" className="px-3 py-2.5 text-right font-medium">Control</th>
-              <th scope="col" className="px-3 py-2.5 text-right font-medium">Variant</th>
-              <th scope="col" className="px-3 py-2.5 text-right font-medium">Δ pp</th>
-              <th scope="col" className="px-3 py-2.5 text-right font-medium">z</th>
-              <th scope="col" className="px-5 py-2.5 text-right font-medium">Verdict</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {significance.map((t) => {
-              const color = !t.significant
-                ? "text-faint"
-                : t.deltaPp >= 0
-                  ? "text-good"
-                  : "text-bad";
-              return (
-                <tr key={t.metric} className="hover:bg-surface-hover">
-                  <td className="px-5 py-3 font-mono text-xs text-fg">{t.metric}</td>
-                  <td className="px-3 py-3 text-right tabular-nums text-muted">
-                    {pct(t.controlRate * 100)}
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-muted">
-                    {pct(t.variantRate * 100)}
-                  </td>
-                  <td className={`px-3 py-3 text-right font-medium tabular-nums ${color}`}>
-                    {signed(t.deltaPp, "pp")}
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-muted">{t.z.toFixed(2)}</td>
-                  <td className={`px-5 py-3 text-right text-xs ${color}`}>{t.label}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {significance.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
+            <thead>
+              <tr className="text-left font-mono text-[11px] uppercase tracking-wider text-muted">
+                <th scope="col" className="px-5 py-2.5 font-medium">Metric · variant</th>
+                <th scope="col" className="px-3 py-2.5 text-right font-medium">Control</th>
+                <th scope="col" className="px-3 py-2.5 text-right font-medium">Variant</th>
+                <th scope="col" className="px-3 py-2.5 text-right font-medium">Δ pp</th>
+                <th scope="col" className="px-3 py-2.5 text-right font-medium">z</th>
+                <th scope="col" className="px-5 py-2.5 text-right font-medium">Verdict</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {significance.map((t) => {
+                const color = !t.significant ? "text-faint" : t.improvement ? "text-good" : "text-bad";
+                return (
+                  <tr key={t.metric} className="hover:bg-surface-hover">
+                    <td className="px-5 py-3 font-mono text-xs text-fg">{t.metric}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-muted">
+                      {pct(t.controlRate * 100)}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-muted">
+                      {pct(t.variantRate * 100)}
+                    </td>
+                    <td className={`px-3 py-3 text-right font-medium tabular-nums ${color}`}>
+                      {signed(t.deltaPp, "pp")}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-muted">{t.z.toFixed(2)}</td>
+                    <td className={`px-5 py-3 text-right text-xs ${color}`}>{t.label}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {byReason.size > 0 && (
+        <div className="space-y-1 border-t border-line px-5 py-3">
+          {[...byReason].map(([reason, labels]) => (
+            <p key={reason} className="text-[11px] leading-relaxed text-faint">
+              No significance test for {labels.join(", ")} — {reason}
+            </p>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
-function WinnersGrid({ verdict, ccy }: { verdict: Verdict; ccy?: string }) {
-  const labels: Record<string, string> = {
-    auth_rate: "Auth rate",
-    rebill_rate: "Rebill rate",
-    rev_per_acquired: "Rev / acquired",
-  };
+// ---------------------------------------------------------------------------
+// Winners — one card per enabled registry metric. Label/unit/decimals come
+// from the metric's own MetricDef (never a hardcoded map — see this file's
+// header for the regression that produced). Colouring is direction-aware: a
+// challenger only ever appears here as a WINNER (buildWinner in lib/verdict.ts
+// only replaces control when a row is strictly better per the metric's own
+// direction), so "challenger leads" always reads as an improvement — this
+// still routes through isImprovement (rather than assuming "not control ⇒
+// good") so the logic stays correct if winner selection ever changes.
+// ---------------------------------------------------------------------------
+
+function WinnersGrid({
+  verdict,
+  metrics,
+  ccy,
+}: {
+  verdict: Verdict;
+  metrics: MetricDef[];
+  ccy?: string;
+}) {
+  const byKey = new Map(metrics.map((m) => [m.key, m]));
   return (
     <section className="grid gap-3 sm:grid-cols-3">
       {verdict.winners.map((w) => {
+        const def = byKey.get(w.metric);
+        // The registry snapshot on THIS response is missing the metric (e.g.
+        // disabled between the verdict computation and now) — skip the card
+        // rather than render a blank label, the exact regression this fixes.
+        if (!def) return null;
+
         const isControl = w.winner === verdict.controlVariant;
-        const isMoney = w.metric === "rev_per_acquired";
-        const fmt = (n: number) => (isMoney ? money(n, ccy) : pct(n));
+        const improved = !isControl && isImprovement(def.direction, w.delta);
+
         return (
           <div key={w.metric} className="rounded-xl border border-line bg-surface p-4">
-            <div className="font-mono text-[10px] font-medium uppercase tracking-wider text-muted">
-              {labels[w.metric]}
+            <div
+              className="font-mono text-[10px] font-medium uppercase tracking-wider text-muted"
+              title={def.description || undefined}
+            >
+              {def.label}
             </div>
             <div className="mt-1.5 flex items-baseline gap-2">
               <span className="font-display text-2xl font-bold tabular-nums text-fg">
-                {fmt(w.winnerValue)}
+                {formatMetric(def, w.winnerValue, ccy)}
               </span>
               <span className="font-mono text-xs font-semibold text-accent">
                 {w.winner}
               </span>
             </div>
-            <div className="mt-1 text-xs text-muted">
+            <div className="mt-1 text-xs">
               {isControl ? (
                 <span className="text-faint">control holds</span>
               ) : (
-                <>
-                  {signed(w.delta, isMoney ? "£" : "pp")}{" "}
-                  <span className="text-faint">({signed(w.deltaRel * 100, "%")}) vs control</span>
-                </>
+                <span className={improved ? "text-good" : "text-bad"}>
+                  {formatMetric(def, w.delta, ccy, { signed: true })}{" "}
+                  <span className="text-faint">({formatRelativeDelta(w.deltaRel)}) vs control</span>
+                </span>
               )}
             </div>
           </div>

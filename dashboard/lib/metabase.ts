@@ -198,8 +198,25 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Resolve the "MAIN DB - Production" database id, or throw a clear error. */
-async function resolveDatabaseId(baseUrl: string, apiKey: string): Promise<number> {
+// The "MAIN DB - Production" id is stable for the life of the process, but every
+// results query used to re-fetch the whole database list to find it — an extra
+// Metabase round-trip before each query (and the home page fires one query per
+// active experiment). Resolve it once per base URL and reuse the promise.
+// Failures are not cached, so a transient error doesn't poison later queries.
+const dbIdCache = new Map<string, Promise<number>>();
+
+/** Resolve the "MAIN DB - Production" database id (memoised), or throw. */
+function resolveDatabaseId(baseUrl: string, apiKey: string): Promise<number> {
+  const cached = dbIdCache.get(baseUrl);
+  if (cached) return cached;
+  const p = fetchDatabaseId(baseUrl, apiKey);
+  dbIdCache.set(baseUrl, p);
+  p.catch(() => dbIdCache.delete(baseUrl));
+  return p;
+}
+
+/** The uncached fetch — the whole /api/database list, filtered by name. */
+async function fetchDatabaseId(baseUrl: string, apiKey: string): Promise<number> {
   const res = await fetch(`${baseUrl}/api/database`, {
     headers: { "x-api-key": apiKey, accept: "application/json" },
     cache: "no-store",

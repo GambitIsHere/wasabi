@@ -189,4 +189,35 @@ async function doCreateSchema(): Promise<void> {
   `;
   // Runway reads order within a lane by position then start_week.
   await sql`CREATE INDEX IF NOT EXISTS roadmap_test_lane_idx ON roadmap_test (lane, position, start_week)`;
+
+  // Metric registry — user-defined metric DEFINITIONS (not code). Turns "add a
+  // metric" from a 4-file, ~69-hardcoded-reference change into one row: define
+  // how to read it off a VariantRow (numerator/denominator or a value field),
+  // which way is "good" (direction), and how to show it (unit/decimals). See
+  // lib/metrics.ts — every read/write funnels through that module, never raw
+  // SQL elsewhere, so adding multi-tenancy (an org_id column, planned for the
+  // NEXT batch) later is a one-file change, not a hunt across callers.
+  await sql`
+    CREATE TABLE IF NOT EXISTS metric (
+      key               TEXT PRIMARY KEY,
+      label             TEXT NOT NULL,
+      description       TEXT,
+      kind              TEXT NOT NULL,
+      direction         TEXT NOT NULL,
+      unit              TEXT NOT NULL,
+      numerator_field   TEXT,
+      denominator_field TEXT,
+      value_field       TEXT,
+      decimals          INTEGER NOT NULL DEFAULT 1,
+      is_goal           BOOLEAN NOT NULL DEFAULT false,
+      show_in_table     BOOLEAN NOT NULL DEFAULT true,
+      display_order     INTEGER NOT NULL DEFAULT 100,
+      enabled           BOOLEAN NOT NULL DEFAULT true,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  // Results/verdict computation reads ordered, enabled metrics on every
+  // request (via lib/metrics.ts's getMetrics(), short-cached) — this index
+  // keeps that a single index scan instead of a sort.
+  await sql`CREATE INDEX IF NOT EXISTS metric_display_order_idx ON metric (display_order, key)`;
 }

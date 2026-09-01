@@ -34,6 +34,7 @@ No payment-event stream needed — variant attribution already lives in the DB (
 |---|---|---|
 | Assignment engine | PostHog-compatible SHA-1 hash → bucket → variant; `/decide`, `/capture`, `/flags` HTTP; SDK + CLI | `engine/src/` |
 | Experiment store | Neon Postgres; CRUD admin UI (create / configure / activate / pause / edit / delete) | `dashboard/lib/store.ts`, `dashboard/app/experiments/` |
+| Event log | `/api/capture` persists each accepted event to Neon (fail-open — a DB hiccup never fails the caller); bounded to a 7-day / 10,000-row window; rate-limited ~60/min/IP with an optional shared-secret gate. Feeds the cockpit's live-events feed + home metrics | `dashboard/lib/events.ts`, `dashboard/app/api/capture/route.ts` |
 | Admin gate | Edge middleware — **Google SSO via Auth.js v5 (next-auth@beta), restricted to `@sanjow.com` emails** (signIn callback enforces the domain); `/api/decide` + `/api/capture` + `/signin` + `/api/auth/*` stay public | `dashboard/middleware.ts`, `dashboard/auth.ts` |
 | Decision-helper | Metabase-backed live results — per-variant funnel, net rev, break-even CAC, currency-aware, charts; two-proportion significance test → ship/keep-running call | `decision-helper/verdict.ts`, `dashboard/components/LiveResults.tsx` |
 | Storefront integration | Drop-in Next.js middleware templates per storefront (TU / AC / AS / PDF); redirect-then-rewrite pattern so both server- and client-side `?theme=` readers stay in sync; fail-safe to control on timeout | `integration/storefronts/` |
@@ -52,7 +53,6 @@ A storage-free, deterministic SHA-1 hash of `"${experimentKey}.${distinctId}${sa
 
 ## What we explicitly did NOT build (deferred)
 - **Session recording / heatmaps** — the PostHog-original plan would have replaced MS Clarity in the same move. Clarity stays for now; revisit as a separate decision.
-- **Persisted capture events** — `/api/capture` is a write-only stub (logs then forgets). Variant attribution lives in the payments DB; the capture endpoint is there for PostHog-SDK compatibility and future telemetry. Add a real sink + rate-limit before relying on it.
 - **VWO retirement** — happens as each storefront is wired (TU first).
 
 ---

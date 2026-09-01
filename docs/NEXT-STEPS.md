@@ -38,7 +38,6 @@ The biggest *"why we built this"* upgrade. All in-repo, no cross-repo dependency
 - [ ] **Rename `middleware.ts` → `proxy.ts`** — Next 16 deprecation warning; cosmetic (it still runs), but future-proofs the gate.
 - [ ] **Rotate the Fireflies API key** — pasted in chat earlier; treat as burned. Keep the new key in Vercel env only.
 - [ ] **(Precautionary) rotate the Google OAuth Client Secret + AUTH_SECRET** — both were set directly in Vercel, *not* exposed in chat, so this is hygiene rather than an active leak. If rotating: Google Cloud Console → Credentials → *Wasabi Dashboard* → RESET SECRET; AUTH_SECRET via `openssl rand -base64 32` + `vercel env rm/add` (invalidates active sessions — low cost, the admin set is small).
-- [ ] **`/api/capture` rate-limit + a real sink.** Currently unauthenticated and unbounded — fine as a write-only stub, dangerous if anyone starts believing the logs. Code comment in `dashboard/lib/engine/handlers.ts:70-83` flags this. Before any external mention: add IP/distinctId rate limit + a Neon insert (or PostHog forward).
 - [ ] **Branded 401 page** for the SSO redirect cold-state (currently plain text *"Authentication required"*). Cheap polish for the management-share first impression.
 - [ ] **Demo script** for the management preview share — a 4-step *"open this URL → click that → look here → notice this verdict"* walk-through that lands the value in 60 seconds.
 - [ ] **`METABASE_URL` + `METABASE_API_KEY`** are already set in Vercel env (verified 2026-06-25). Confirm the LiveResults panel actually renders on `/experiments/tu-billing-uk` — the only experiment with real Metabase data flowing.
@@ -47,6 +46,7 @@ The biggest *"why we built this"* upgrade. All in-repo, no cross-repo dependency
 
 ## Recently done (since 2026-06-22 → 2026-06-29)
 
+- ✅ **`/api/capture` rate-limit + a real sink** — each accepted event now persists to the `event` table (`dashboard/lib/events.ts`, fail-open so a DB hiccup never fails the caller's ack), bounded to a 7-day / 10,000-row window. Gated by a ~60 events/minute/IP token-bucket rate limit (`dashboard/lib/rate-limit.ts`) and an optional shared-secret key (`WASABI_INGEST_KEY` / `x-wasabi-key` header, 401 on mismatch when set) (2026-09-01).
 - ✅ **Google SSO via Auth.js v5** (`@sanjow.com` domain allowlist, branded sign-in page) — replaced basic-auth (`a93f5248`).
 - ✅ **`description` field on experiments** — schema + DB migration + form textarea + card / detail render. Auto-fallback summary for empty descriptions preserved.
 - ✅ **Canonical 6-seed set with management-grade descriptions** — 3 sample (TU billing UK, TU reward page, AC quarterly €79 vs biweekly €24.90) + 3 upcoming (AS fast-track £19 vs £14, PDF auth £49 vs £19, GT booking fee €0 vs €4.99) (`9f6a8edb`).

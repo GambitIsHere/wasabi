@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { ExperimentForm } from "@/components/ExperimentForm";
+import { ExperimentForm, type GoalMetricOption } from "@/components/ExperimentForm";
 import {
   BUSINESSES,
-  GOAL_METRICS,
   THEME_SLUGS,
   THEME_SLUG_RE,
   type ExperimentInput,
 } from "@/lib/mgmt";
+import { getMetrics } from "@/lib/metrics";
 
 export const dynamic = "force-dynamic";
 
@@ -16,19 +16,23 @@ const VALID_BUSINESS = new Set<string>([...BUSINESSES]);
  * Build the form's initial values, optionally prefilled from a backlog ticket's
  * query params (business / name / theme — set by the backlog "+ Test" link).
  * Invalid or stale params fall back to safe defaults, so a hand-edited URL can
- * never produce an invalid starting form.
+ * never produce an invalid starting form. `defaultGoalMetric` is the registry's
+ * first isGoal metric (display-ordered) — "" (no registry goal metrics exist
+ * yet) is a valid, honest starting point: the form simply won't validate until
+ * one exists, rather than pretending a hardcoded metric is still real.
  */
 function buildInitial(p: {
   business: string;
   name: string;
   theme: string;
+  defaultGoalMetric: string;
 }): ExperimentInput {
   const business = VALID_BUSINESS.has(p.business) ? p.business : BUSINESSES[0];
   const theme = THEME_SLUG_RE.test(p.theme) ? p.theme : THEME_SLUGS[0];
   return {
     name: p.name.trim().slice(0, 120),
     business,
-    goalMetric: GOAL_METRICS[0],
+    goalMetric: p.defaultGoalMetric,
     startDate: new Date().toISOString().slice(0, 10),
     description: "",
     variants: [
@@ -43,13 +47,17 @@ export default async function NewExperimentPage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  const sp = await searchParams;
+  const [sp, metrics] = await Promise.all([searchParams, getMetrics()]);
+  const goalMetricOptions: GoalMetricOption[] = metrics
+    .filter((m) => m.isGoal)
+    .map((m) => ({ key: m.key, label: m.label }));
   const str = (v: string | string[] | undefined) =>
     (Array.isArray(v) ? v[0] : v) ?? "";
   const initial = buildInitial({
     business: str(sp.business),
     name: str(sp.name),
     theme: str(sp.theme),
+    defaultGoalMetric: goalMetricOptions[0]?.key ?? "",
   });
   const ticket = str(sp.ticket).trim();
   const ytHost = process.env.YOUTRACK_HOST || "sanjow.youtrack.cloud";
@@ -83,7 +91,7 @@ export default async function NewExperimentPage({
         )}
       </div>
 
-      <ExperimentForm mode="create" initial={initial} />
+      <ExperimentForm mode="create" initial={initial} goalMetricOptions={goalMetricOptions} />
     </div>
   );
 }

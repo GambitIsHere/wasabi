@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getExperiment } from "@/lib/store";
-import { ExperimentForm } from "@/components/ExperimentForm";
+import { getMetrics } from "@/lib/metrics";
+import { ExperimentForm, type GoalMetricOption } from "@/components/ExperimentForm";
 import type { ExperimentInput } from "@/lib/mgmt";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +13,11 @@ export default async function EditExperimentPage({
   params: Promise<{ key: string }>;
 }) {
   const { key } = await params;
-  const exp = await getExperiment(key);
+  const [exp, metrics] = await Promise.all([getExperiment(key), getMetrics()]);
   if (!exp) notFound();
+  const goalMetricOptions: GoalMetricOption[] = metrics
+    .filter((m) => m.isGoal)
+    .map((m) => ({ key: m.key, label: m.label }));
 
   // StoredExperiment → ExperimentInput (the form's shape). Key is carried so the
   // form can show it immutable and the action can lock identity.
@@ -44,7 +48,7 @@ export default async function EditExperimentPage({
         </div>
       </div>
 
-      <ExperimentForm mode="edit" initial={initial} />
+      <ExperimentForm mode="edit" initial={initial} goalMetricOptions={goalMetricOptions} />
     </div>
   );
 }

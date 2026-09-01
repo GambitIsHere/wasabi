@@ -16,9 +16,11 @@
 import { revalidatePath } from "next/cache";
 import type { ActionResult, ExperimentInput } from "@/lib/mgmt";
 import { validateInput } from "@/lib/mgmt";
+import { getMetrics } from "@/lib/metrics";
 import {
   deleteExperiment as storeDelete,
   experimentExists,
+  getExperiment,
   insertExperiment,
   resolveKey,
   setActive as storeSetActive,
@@ -32,9 +34,27 @@ function revalidateFor(key: string): void {
   revalidatePath(`/experiments/${key}/edit`);
 }
 
+/**
+ * The goal-metric keys validateInput is allowed to accept: every registry
+ * metric flagged isGoal, PLUS (when editing) the experiment's OWN current
+ * goalMetric even if it's not — or no longer — a registry goal metric. That
+ * union is what makes "existing experiments keep working" real rather than
+ * aspirational: an experiment created before a metric was renamed/removed
+ * from the registry can still be saved (unrelated edits aren't blocked by an
+ * orphaned goal metric) without silently rewriting its stored value, and a
+ * genuinely NEW goal-metric selection still has to be a real registry metric.
+ * A DB read — this is exactly why lib/mgmt.ts can't compute this list itself.
+ */
+async function allowedGoalMetrics(currentGoalMetric?: string): Promise<string[]> {
+  const metrics = await getMetrics();
+  const keys = metrics.filter((m) => m.isGoal).map((m) => m.key);
+  if (currentGoalMetric && !keys.includes(currentGoalMetric)) keys.push(currentGoalMetric);
+  return keys;
+}
+
 /** Create a new experiment. Key is the slug of the name unless provided. */
 export async function createExperiment(input: ExperimentInput): Promise<ActionResult> {
-  const error = validateInput(input);
+  const error = validateInput(input, await allowedGoalMetrics());
   if (error) return { ok: false, error };
 
   const key = resolveKey(input);
@@ -65,11 +85,14 @@ export async function updateExperiment(
   key: string,
   input: ExperimentInput,
 ): Promise<ActionResult> {
-  if (!(await experimentExists(key))) {
+  const existing = await getExperiment(key);
+  if (!existing) {
     return { ok: false, error: `No experiment with key "${key}".` };
   }
-  // Validate with the locked key so slug-from-name can't silently change identity.
-  const error = validateInput({ ...input, key });
+  // Validate with the locked key so slug-from-name can't silently change
+  // identity, and with the existing goalMetric unioned in (see
+  // allowedGoalMetrics) so an orphaned legacy value doesn't block the save.
+  const error = validateInput({ ...input, key }, await allowedGoalMetrics(existing.goalMetric));
   if (error) return { ok: false, error };
 
   try {

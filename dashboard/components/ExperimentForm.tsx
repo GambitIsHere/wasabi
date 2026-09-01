@@ -14,7 +14,6 @@ import { useRouter } from "next/navigation";
 import {
   BUSINESSES,
   DESCRIPTION_MAX,
-  GOAL_METRICS,
   THEME_SLUGS,
   slugify,
   splitTotal,
@@ -23,10 +22,24 @@ import {
 import type { ExperimentInput, VariantInput } from "@/lib/mgmt";
 import { createExperiment, updateExperiment } from "@/app/actions";
 
+/** One goal-metric dropdown option: `key` is what's stored, `label` is what's
+ *  shown. Server-fetched (this is a client component; it can't read the
+ *  registry DB itself) — see app/experiments/new|[key]/edit's page.tsx. */
+export interface GoalMetricOption {
+  key: string;
+  label: string;
+}
+
 interface Props {
   mode: "create" | "edit";
   /** Pre-filled values for edit; sensible defaults for create. */
   initial: ExperimentInput;
+  /** Registry metrics where isGoal is true, display-ordered. May NOT include
+   *  `initial.goalMetric` (e.g. editing an experiment whose stored goal metric
+   *  predates the registry, or was since renamed/disabled) — see goalOptions
+   *  below, which unions it in so editing degrades gracefully instead of
+   *  crashing or silently swapping the value. */
+  goalMetricOptions: GoalMetricOption[];
 }
 
 /** Editable row state (split kept as string so the input can be transiently empty). */
@@ -55,7 +68,7 @@ function draftsToVariants(drafts: VariantDraft[]): VariantInput[] {
   }));
 }
 
-export function ExperimentForm({ mode, initial }: Props) {
+export function ExperimentForm({ mode, initial, goalMetricOptions }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
@@ -66,6 +79,24 @@ export function ExperimentForm({ mode, initial }: Props) {
   const [startDate, setStartDate] = useState(initial.startDate);
   const [description, setDescription] = useState(initial.description ?? "");
   const [drafts, setDrafts] = useState<VariantDraft[]>(toDrafts(initial.variants));
+
+  // The dropdown's real option list: the registry's isGoal metrics, plus the
+  // experiment's OWN current goal metric if it isn't already one of them —
+  // "show the raw key" for a legacy/orphaned value (e.g. a pre-registry
+  // "revenue_per_acquired") rather than silently dropping it from the select
+  // or forcing the user to pick something else before they can save anything.
+  const goalOptions = useMemo<GoalMetricOption[]>(() => {
+    if (goalMetricOptions.some((o) => o.key === initial.goalMetric)) return goalMetricOptions;
+    return [
+      ...goalMetricOptions,
+      { key: initial.goalMetric, label: `${initial.goalMetric} — not in registry` },
+    ];
+  }, [goalMetricOptions, initial.goalMetric]);
+  // validateInput takes the allowed set explicitly (it's a pure module — see
+  // lib/mgmt.ts — and can't read the registry DB itself); this mirrors
+  // exactly what app/actions.ts's server action independently re-derives, so
+  // a submit that passes client-side validation also passes server-side.
+  const allowedGoalKeys = useMemo(() => goalOptions.map((o) => o.key), [goalOptions]);
 
   // Focus management for add/remove variant rows — keeps keyboard focus from
   // getting stranded when the row list changes shape.
@@ -102,7 +133,7 @@ export function ExperimentForm({ mode, initial }: Props) {
     description,
     variants,
   };
-  const validationError = validateInput(candidate);
+  const validationError = validateInput(candidate, allowedGoalKeys);
   const canSubmit = validationError === null && !pending;
 
   // --- variant row mutators ---
@@ -219,9 +250,9 @@ export function ExperimentForm({ mode, initial }: Props) {
               onChange={(e) => setGoalMetric(e.target.value)}
               className="rounded-lg border border-line-strong bg-bg px-3 py-2 font-mono text-sm text-fg focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
             >
-              {GOAL_METRICS.map((g) => (
-                <option key={g} value={g}>
-                  {g}
+              {goalOptions.map((g) => (
+                <option key={g.key} value={g.key}>
+                  {g.label}
                 </option>
               ))}
             </select>

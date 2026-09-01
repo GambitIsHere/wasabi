@@ -71,15 +71,6 @@ export const BUSINESSES = [
 ] as const;
 export type Business = (typeof BUSINESSES)[number];
 
-/** Goal metrics, mirrored by the verdict/results pipeline. */
-export const GOAL_METRICS = [
-  "revenue_per_acquired",
-  "auth_rate",
-  "rebill_rate",
-  "conversion",
-] as const;
-export type GoalMetric = (typeof GOAL_METRICS)[number];
-
 /**
  * SUGGESTED storefront `?theme=` slugs — surfaced as autocomplete in the form.
  * This is NOT an exhaustive whitelist: global-api's `Theme` table holds 600+ slugs
@@ -149,7 +140,7 @@ export function splitTotal(variants: readonly VariantInput[]): number {
 /**
  * Validate an ExperimentInput against every business rule:
  *   - name non-empty
- *   - business + goalMetric in the allowed sets
+ *   - business in the allowed set; goalMetric in `allowedGoalMetrics`
  *   - startDate is YYYY-MM-DD
  *   - ≥2 variants, each with a valid key, a valid theme slug, an integer split
  *   - variant keys unique
@@ -157,11 +148,26 @@ export function splitTotal(variants: readonly VariantInput[]): number {
  *   - EXACTLY one control
  * `keyForUniqueness` is the resolved key (slug or provided) — validated for shape
  * here; the store layer checks cross-experiment uniqueness against the DB.
+ *
+ * `allowedGoalMetrics` is a REQUIRED parameter, not a module constant: goal
+ * metrics now come from lib/metrics.ts's registry (isGoal=true rows), a DB
+ * read this pure/no-I/O module must never make itself. The caller supplies
+ * the currently-valid set — the client form gets it via a server-rendered
+ * prop (getMetrics() in app/experiments/new|[key]/edit's page.tsx), the
+ * server action re-derives it itself (app/actions.ts) so validation stays
+ * authoritative rather than trusting whatever the client sent. Pass the
+ * EXPERIMENT'S OWN CURRENT goalMetric alongside the registry set when editing
+ * (see app/actions.ts's updateExperiment) so an experiment created before a
+ * metric was renamed/removed from the registry keeps saving — this function
+ * only checks membership, it has no notion of "unchanged from before".
  */
 /** Max description length — keeps card layouts predictable; ~400 chars is 3-4 lines. */
 export const DESCRIPTION_MAX = 400;
 
-export function validateInput(input: ExperimentInput): string | null {
+export function validateInput(
+  input: ExperimentInput,
+  allowedGoalMetrics: readonly string[],
+): string | null {
   if (!input.name || input.name.trim().length === 0) {
     return "Name is required.";
   }
@@ -171,8 +177,8 @@ export function validateInput(input: ExperimentInput): string | null {
   if (!BUSINESSES.includes(input.business as Business)) {
     return `Business must be one of: ${BUSINESSES.join(", ")}.`;
   }
-  if (!GOAL_METRICS.includes(input.goalMetric as GoalMetric)) {
-    return `Goal metric must be one of: ${GOAL_METRICS.join(", ")}.`;
+  if (!allowedGoalMetrics.includes(input.goalMetric)) {
+    return `Goal metric must be one of: ${allowedGoalMetrics.join(", ")}.`;
   }
   if (!ISO_DATE_RE.test(input.startDate)) {
     return "Start date must be a valid date (YYYY-MM-DD).";
