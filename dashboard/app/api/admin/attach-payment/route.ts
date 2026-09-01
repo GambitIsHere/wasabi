@@ -15,8 +15,13 @@
 //     slugMap: Record<string, string[]>     // archived variant key → theme slug(s)
 //   }
 //
-// Auth is enforced by the global NextAuth middleware (this path is NOT in
-// PUBLIC_PREFIXES). Degrades gracefully: with no METABASE_API_KEY it returns
+// Authentication is enforced by the global NextAuth middleware (this path is NOT
+// in PUBLIC_PREFIXES). AUTHORIZATION — at least `admin` — and TENANT SLUG
+// SCOPING are enforced here (see the POST handler): this route queries the
+// shared global-api Metabase for arbitrary caller-supplied theme slugs and
+// returns the P&L, so it must gate BEFORE that read and refuse any slug the
+// caller's own project doesn't own — otherwise any member could read any
+// brand's revenue. Degrades gracefully: with no METABASE_API_KEY it returns
 // { ok: false, reason } and never throws.
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
@@ -25,6 +30,8 @@ import {
   attachPaymentMetrics,
   type VariantPaymentMetrics,
 } from "@/lib/archive";
+import { requireRole } from "@/lib/authz";
+import { getProjectThemeSlugs } from "@/lib/experiments";
 import { runPaymentMetrics, type SlugPaymentRow } from "@/lib/metabase";
 
 export const runtime = "nodejs";
@@ -128,6 +135,11 @@ function foldVariant(
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const gate = await requireRole("admin");
+  if (!gate.ok) {
+    return NextResponse.json({ ok: false, reason: gate.error }, { status: gate.status });
+  }
+
   let raw: unknown;
   try {
     raw = await req.json();
@@ -178,6 +190,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       { ok: false, reason: "slugMap has no theme slugs." },
       { status: 400 },
+    );
+  }
+
+  // TENANT SLUG SCOPING — refuse to query any slug the caller's own project
+  // doesn't reference. Without this, arbitrary slugs go straight to the shared
+  // global-api Metabase and their P&L comes back in the response, so any
+  // authenticated member could read another brand's revenue. Checked BEFORE the
+  // Metabase read, so a disallowed slug is never queried at all.
+  const ownedSlugs = await getProjectThemeSlugs();
+  const disallowed = allSlugs.filter((s) => !ownedSlugs.has(s));
+  if (disallowed.length > 0) {
+    return NextResponse.json(
+      {
+        ok: false,
+        reason: `These theme slugs aren't part of your project and can't be queried: ${disallowed.join(", ")}.`,
+      },
+      { status: 403 },
     );
   }
 

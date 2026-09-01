@@ -59,6 +59,107 @@ export function createSchema(): Promise<void> {
 
 async function doCreateSchema(): Promise<void> {
   const sql = getSql();
+
+  // Tenancy — organization / project / api_key. Brand-new tables, so (unlike
+  // the ALTER TABLEs the rest of the tenancy seam needs) they're safe to
+  // create here: additive, empty on a fresh DB, never touches an existing
+  // row. The org_id/project_id columns THOSE existing tables (experiment,
+  // archived_experiment, event, roadmap_test, metric) need live in
+  // scripts/migrate-tenancy.ts instead — see that file's header for why an
+  // ALTER on a populated table must never run from this automatic path.
+  // Column-level scope decisions are documented in lib/tenant.ts.
+  await sql`
+    CREATE TABLE IF NOT EXISTS organization (
+      id              TEXT PRIMARY KEY,
+      name            TEXT NOT NULL,
+      verified_domain TEXT,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS project (
+      id         TEXT PRIMARY KEY,
+      org_id     TEXT NOT NULL REFERENCES organization(id),
+      name       TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS project_org_idx ON project (org_id)`;
+  // api_key stores a HASH, never the raw key — the raw value is shown once at
+  // creation and is not recoverable from this table. key_prefix (first ~8
+  // chars of the raw key) lets the UI identify a key in a list without
+  // storing anything sensitive. Indexed on key_hash (unique — two keys
+  // colliding on their hash would mean SHA-256 collided, but the constraint
+  // also catches an accidental double-insert of the same key).
+  await sql`
+    CREATE TABLE IF NOT EXISTS api_key (
+      id            TEXT PRIMARY KEY,
+      project_id    TEXT NOT NULL REFERENCES project(id),
+      name          TEXT,
+      key_hash      TEXT NOT NULL,
+      key_prefix    TEXT NOT NULL,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_used_at  TIMESTAMPTZ,
+      revoked_at    TIMESTAMPTZ
+    )
+  `;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS api_key_key_hash_idx ON api_key (key_hash)`;
+  await sql`CREATE INDEX IF NOT EXISTS api_key_project_idx ON api_key (project_id)`;
+
+  // Real user accounts (Batch D-a) — brand-new tables, additive, safe here for
+  // the same reason organization/project/api_key are (see this function's
+  // opening comment). "user" is quoted throughout because it's a reserved
+  // word in Postgres (the USER function/keyword) — unquoted CREATE TABLE user
+  // fails to parse.
+  //
+  // email is the login identity: NOT NULL UNIQUE, always stored lowercased
+  // (lib/users.ts normalises on every write AND every lookup — the column
+  // itself has no CHECK/lowercasing trigger, so a caller that bypasses
+  // lib/users.ts could in principle violate that; nothing in this codebase
+  // does, and lib/users.test.ts's contract test is the guard against it
+  // silently regressing).
+  //
+  // password_hash is nullable: a Google-only user (the common case today —
+  // see auth.ts's per-org Google sign-in) never sets one. status starts
+  // "pending" for a fresh self-registration and must reach "active" (email
+  // verification OR an org owner/admin approval — see
+  // app/register-actions.ts) before auth.ts's Credentials authorize() will
+  // ever return a session for it — see lib/tenant.test.ts-style coverage in
+  // lib/users.test.ts for the "pending gets no session" contract.
+  await sql`
+    CREATE TABLE IF NOT EXISTS "user" (
+      id                 TEXT PRIMARY KEY,
+      email              TEXT NOT NULL UNIQUE,
+      name               TEXT,
+      image              TEXT,
+      password_hash      TEXT,
+      email_verified_at  TIMESTAMPTZ,
+      status             TEXT NOT NULL DEFAULT 'pending',
+      created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+  // membership — join table, one row per (user, org) the user can access.
+  // role defaulting (first member of an org → owner, everyone after →
+  // viewer) is application logic in lib/membership.ts, not a DB default,
+  // because it depends on whether the org already has members — a DEFAULT
+  // 'viewer' here is just the safe floor if a row is ever inserted some
+  // other way. ON DELETE CASCADE on user_id: deleting a user should never
+  // leave orphaned membership rows; organization has no delete path yet, so
+  // org_id has none.
+  await sql`
+    CREATE TABLE IF NOT EXISTS membership (
+      user_id    TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+      org_id     TEXT NOT NULL REFERENCES organization(id),
+      role       TEXT NOT NULL DEFAULT 'viewer',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, org_id)
+    )
+  `;
+  // Approval UI (app/admin/members) lists an org's pending members — filters
+  // by org_id first, so this index keeps that a single index scan.
+  await sql`CREATE INDEX IF NOT EXISTS membership_org_idx ON membership (org_id)`;
+
   await sql`
     CREATE TABLE IF NOT EXISTS experiment (
       key         TEXT PRIMARY KEY,
@@ -195,8 +296,9 @@ async function doCreateSchema(): Promise<void> {
   // how to read it off a VariantRow (numerator/denominator or a value field),
   // which way is "good" (direction), and how to show it (unit/decimals). See
   // lib/metrics.ts — every read/write funnels through that module, never raw
-  // SQL elsewhere, so adding multi-tenancy (an org_id column, planned for the
-  // NEXT batch) later is a one-file change, not a hunt across callers.
+  // SQL elsewhere, which is exactly what let the tenancy seam add a
+  // `project_id` column (scripts/migrate-tenancy.ts) as a one-file change to
+  // lib/metrics.ts, not a hunt across callers.
   await sql`
     CREATE TABLE IF NOT EXISTS metric (
       key               TEXT PRIMARY KEY,

@@ -6,15 +6,23 @@
 // payment metrics — so this is the non-destructive in-place setter.
 //
 // Body: { key: string, insight: string }   (insight "" clears it)
-// Auth is enforced by the global NextAuth middleware (not in PUBLIC_PREFIXES).
+// Authentication is enforced by the global NextAuth middleware (not in
+// PUBLIC_PREFIXES). AUTHORIZATION — at least `admin` — is enforced here: it
+// rewrites stored analysis on the tenant's archived experiments.
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { setArchivedInsight } from "@/lib/archive";
+import { requireRole } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const gate = await requireRole("admin");
+  if (!gate.ok) {
+    return NextResponse.json({ ok: false, reason: gate.error }, { status: gate.status });
+  }
+
   let raw: unknown;
   try {
     raw = await req.json();

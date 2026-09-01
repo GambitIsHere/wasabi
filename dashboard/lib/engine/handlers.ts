@@ -8,6 +8,7 @@
 // short per-instance cache to avoid a Neon round-trip per call.
 import { getFeatureFlag } from "./assignment";
 import { getExperiments } from "../experiments";
+import { getCurrentProjectId } from "../tenant";
 import type { RegisteredExperiment } from "../experiments";
 import type {
   CaptureRequest,
@@ -25,14 +26,24 @@ import type {
 // tolerates slight staleness, and this turns most requests into zero DB
 // round-trips. Admin pages/actions read the store UNCACHED (getExperiments /
 // listExperiments), so create/edit/activate still reflect immediately.
+//
+// KEYED BY projectId (a Map, not a single slot) — the exact pattern
+// lib/metrics.ts:getMetrics() uses. getExperiments() is tenant-scoped (it reads
+// through lib/store.ts, which filters by getCurrentProjectId()), so a single
+// module-level slot would serve WHICHEVER tenant warmed the instance to every
+// other tenant for the TTL window — leaking one brand's experiment/variant/theme
+// config to anonymous /decide + /flags callers and mis-assigning their visitors.
+// Resolving the projectId BEFORE the cache lookup makes the cache per-tenant.
 const REGISTRY_TTL_MS = 10_000;
-let registryCache: { exps: RegisteredExperiment[]; expiry: number } | null = null;
+const registryCache = new Map<string, { exps: RegisteredExperiment[]; expiry: number }>();
 
 async function assignmentRegistry(): Promise<RegisteredExperiment[]> {
+  const projectId = await getCurrentProjectId();
   const now = Date.now();
-  if (registryCache && registryCache.expiry > now) return registryCache.exps;
+  const cached = registryCache.get(projectId);
+  if (cached && cached.expiry > now) return cached.exps;
   const exps = await getExperiments();
-  registryCache = { exps, expiry: now + REGISTRY_TTL_MS };
+  registryCache.set(projectId, { exps, expiry: now + REGISTRY_TTL_MS });
   return exps;
 }
 

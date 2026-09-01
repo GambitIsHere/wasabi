@@ -27,6 +27,7 @@ import {
   type RoadmapTest,
   type TestStatus,
 } from "./roadmap";
+import { getCurrentOrgId } from "./tenant";
 
 // ---------------------------------------------------------------------------
 // Row shape (snake_case, as stored)
@@ -45,6 +46,7 @@ interface RoadmapRow {
   note: string | null;
   rerun_of: string | null;
   position: number;
+  org_id: string;
 }
 
 const LANE_SET = new Set<Lane>(LANES);
@@ -90,8 +92,9 @@ function toTest(row: RoadmapRow): RoadmapTest {
 export async function listRoadmap(): Promise<RoadmapLane[]> {
   await ensureReady();
   const sql = getSql();
+  const orgId = await getCurrentOrgId();
   const rows = (await sql`
-    SELECT * FROM roadmap_test ORDER BY position ASC, start_week ASC, id ASC
+    SELECT * FROM roadmap_test WHERE org_id = ${orgId} ORDER BY position ASC, start_week ASC, id ASC
   `) as unknown as RoadmapRow[];
 
   const byLane = new Map<Lane, RoadmapTest[]>();
@@ -207,17 +210,20 @@ export async function updateRoadmapTest(
   }
 
   const sql = getSql();
+  const orgId = await getCurrentOrgId();
   // COALESCE keeps any field the patch omits at its stored value, so this one
   // statement handles every partial patch without branching the SQL. The explicit
   // ::text / ::int casts give the bound NULLs a concrete type (Postgres can't
-  // infer the type of a bare NULL parameter).
+  // infer the type of a bare NULL parameter). org_id in the WHERE means a
+  // foreign-org id behaves exactly like an unknown id — a harmless no-op,
+  // same as today's already-silent "nothing matched" case.
   await sql`
     UPDATE roadmap_test SET
       lane       = COALESCE(${patch.lane ?? null}::text, lane),
       start_week = COALESCE(${hasStart ? patch.startWeek : null}::int, start_week),
       end_week   = COALESCE(${hasEnd ? patch.endWeek : null}::int, end_week),
       position   = COALESCE(${patch.position ?? null}::int, position)
-    WHERE id = ${id}
+    WHERE id = ${id} AND org_id = ${orgId}
   `;
 }
 
@@ -238,14 +244,15 @@ async function insertRow(
   position: number,
 ): Promise<void> {
   const sql = getSql();
+  const orgId = await getCurrentOrgId();
   const id = roadmapTestId(test);
   await sql`
     INSERT INTO roadmap_test
-      (id, lane, ticket, title, surface, start_week, end_week, status, pilot, note, rerun_of, position)
+      (id, lane, ticket, title, surface, start_week, end_week, status, pilot, note, rerun_of, position, org_id)
     VALUES (
       ${id}, ${lane}, ${test.ticket}, ${test.title}, ${test.surface},
       ${test.startWeek}, ${test.endWeek}, ${test.status},
-      ${test.pilot ? 1 : 0}, ${test.note ?? null}, ${test.rerunOf ?? null}, ${position}
+      ${test.pilot ? 1 : 0}, ${test.note ?? null}, ${test.rerunOf ?? null}, ${position}, ${orgId}
     )
   `;
 }
@@ -253,7 +260,10 @@ async function insertRow(
 async function initOnce(): Promise<void> {
   await createSchema();
   const sql = getSql();
-  const rows = (await sql`SELECT COUNT(*)::int AS n FROM roadmap_test`) as unknown as {
+  // Scoped to the current tenant's org, same "seed once PER TENANT" reasoning
+  // as lib/store.ts's initOnce — see that function's comment.
+  const orgId = await getCurrentOrgId();
+  const rows = (await sql`SELECT COUNT(*)::int AS n FROM roadmap_test WHERE org_id = ${orgId}`) as unknown as {
     n: number;
   }[];
   if ((rows[0]?.n ?? 0) > 0) return;

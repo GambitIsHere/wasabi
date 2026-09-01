@@ -14,6 +14,7 @@
 // client form can render a clean inline error.
 // ============================================================================
 import { revalidatePath } from "next/cache";
+import { requireRole } from "@/lib/authz";
 import type { ActionResult, ExperimentInput } from "@/lib/mgmt";
 import { validateInput } from "@/lib/mgmt";
 import { getMetrics } from "@/lib/metrics";
@@ -26,6 +27,7 @@ import {
   setActive as storeSetActive,
   updateExperiment as storeUpdate,
 } from "@/lib/store";
+import { isUniqueViolation } from "@/lib/users";
 
 /** Re-read the list + a specific detail/edit route after a write. */
 function revalidateFor(key: string): void {
@@ -54,6 +56,9 @@ async function allowedGoalMetrics(currentGoalMetric?: string): Promise<string[]>
 
 /** Create a new experiment. Key is the slug of the name unless provided. */
 export async function createExperiment(input: ExperimentInput): Promise<ActionResult> {
+  const gate = await requireRole("editor");
+  if (!gate.ok) return { ok: false, error: gate.error };
+
   const error = validateInput(input, await allowedGoalMetrics());
   if (error) return { ok: false, error };
 
@@ -70,6 +75,21 @@ export async function createExperiment(input: ExperimentInput): Promise<ActionRe
     revalidateFor(created);
     return { ok: true, key: created };
   } catch (err) {
+    // experiment.key is a GLOBAL primary key across tenants (see
+    // lib/tenant.ts's KNOWN LIMITATION note), so experimentExists() above only
+    // rules out a SAME-tenant duplicate — it can't see another tenant's row.
+    // If this key belongs to a DIFFERENT tenant, the INSERT above hits that
+    // global constraint and Postgres throws a "duplicate key value violates
+    // unique constraint" error naming the key. Returning that raw message
+    // would confirm to this caller that some other tenant already owns the
+    // key — genericise it instead. Any OTHER error (a real DB fault, a
+    // network hiccup) still surfaces its real message below.
+    if (isUniqueViolation(err)) {
+      return {
+        ok: false,
+        error: "That experiment key is already in use — pick another.",
+      };
+    }
     return {
       ok: false,
       error: err instanceof Error ? err.message : "Failed to create experiment.",
@@ -85,6 +105,9 @@ export async function updateExperiment(
   key: string,
   input: ExperimentInput,
 ): Promise<ActionResult> {
+  const gate = await requireRole("editor");
+  if (!gate.ok) return { ok: false, error: gate.error };
+
   const existing = await getExperiment(key);
   if (!existing) {
     return { ok: false, error: `No experiment with key "${key}".` };
@@ -112,6 +135,9 @@ export async function setExperimentActive(
   key: string,
   active: boolean,
 ): Promise<ActionResult> {
+  const gate = await requireRole("editor");
+  if (!gate.ok) return { ok: false, error: gate.error };
+
   const changed = await storeSetActive(key, active);
   if (!changed) return { ok: false, error: `No experiment with key "${key}".` };
   revalidateFor(key);
@@ -120,6 +146,9 @@ export async function setExperimentActive(
 
 /** Delete an experiment (variants cascade). */
 export async function deleteExperiment(key: string): Promise<ActionResult> {
+  const gate = await requireRole("editor");
+  if (!gate.ok) return { ok: false, error: gate.error };
+
   const removed = await storeDelete(key);
   if (!removed) return { ok: false, error: `No experiment with key "${key}".` };
   revalidatePath("/");

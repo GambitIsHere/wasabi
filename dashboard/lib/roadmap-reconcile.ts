@@ -18,6 +18,7 @@
 // ============================================================================
 import { getSql, createSchema } from "./db";
 import { ROADMAP, roadmapTestId } from "./roadmap";
+import { getCurrentOrgId } from "./tenant";
 
 let done: Promise<void> | null = null;
 
@@ -38,8 +39,9 @@ export function reconcileRoadmapMetadata(): Promise<void> {
 async function run(): Promise<void> {
   await createSchema();
   const sql = getSql();
+  const orgId = await getCurrentOrgId();
   const existing = new Set(
-    ((await sql`SELECT id FROM roadmap_test`) as unknown as { id: string }[]).map(
+    ((await sql`SELECT id FROM roadmap_test WHERE org_id = ${orgId}`) as unknown as { id: string }[]).map(
       (r) => r.id,
     ),
   );
@@ -60,17 +62,17 @@ async function run(): Promise<void> {
               pilot    = ${test.pilot ? 1 : 0},
               note     = ${test.note ?? null},
               rerun_of = ${test.rerunOf ?? null}
-            WHERE id = ${id}
+            WHERE id = ${id} AND org_id = ${orgId}
           `;
         } else {
           // A test newly added to the static plan — insert with its static layout.
           await sql`
             INSERT INTO roadmap_test
-              (id, lane, ticket, title, surface, start_week, end_week, status, pilot, note, rerun_of, position)
+              (id, lane, ticket, title, surface, start_week, end_week, status, pilot, note, rerun_of, position, org_id)
             VALUES (
               ${id}, ${lane.lane}, ${test.ticket}, ${test.title}, ${test.surface},
               ${test.startWeek}, ${test.endWeek}, ${test.status},
-              ${test.pilot ? 1 : 0}, ${test.note ?? null}, ${test.rerunOf ?? null}, ${position}
+              ${test.pilot ? 1 : 0}, ${test.note ?? null}, ${test.rerunOf ?? null}, ${position}, ${orgId}
             )
           `;
         }

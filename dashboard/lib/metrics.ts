@@ -22,16 +22,18 @@
 // them WITHOUT pulling in "./db" — this file re-exports all of them below so
 // every existing server-side caller keeps working unchanged.
 //
-// FORWARD-COMPAT: multi-tenancy (an org_id column on every table) is the next
-// batch's job, deliberately NOT added here. Every read/write in this file
-// funnels through one place (getMetrics / listMetricsUncached / createMetric /
-// updateMetric / deleteMetric) — never raw SQL in a caller — so adding
-// `WHERE org_id = $1` later is a one-file change, not a hunt across callers.
+// TENANCY: every read/write in this file funnels through one place
+// (getMetrics / listMetricsUncached / createMetric / updateMetric /
+// deleteMetric) — never raw SQL in a caller — which is exactly what made
+// adding `WHERE project_id = …` (scripts/migrate-tenancy.ts) a one-file
+// change here instead of a hunt across callers. See lib/tenant.ts for why a
+// metric definition is project-scoped rather than org-scoped.
 // ============================================================================
 import { getSql, createSchema } from "./db";
 import { SEED_METRICS } from "./seeds";
 import { DIRECTIONS, METRIC_KINDS, METRIC_UNITS, isVariantRowNumericField, validateMetricDef } from "./metrics-core";
 import type { Direction, MetricDef, MetricInput, MetricKind, MetricUnit, VariantRowNumericField } from "./metrics-core";
+import { getCurrentProjectId } from "./tenant";
 
 export * from "./metrics-core";
 
@@ -55,6 +57,7 @@ interface MetricRow {
   display_order: number;
   enabled: boolean;
   created_at: string;
+  project_id: string;
 }
 
 function toNumericFieldOrNull(v: string | null): VariantRowNumericField | null {
@@ -121,17 +124,18 @@ function normalizeDescription(d: string | undefined): string | null {
  *  deadlock (it awaits ensureMetricsReady(), which is what's already running). */
 async function insertMetricRaw(input: MetricInput): Promise<string> {
   const sql = getSql();
+  const projectId = await getCurrentProjectId();
   await sql`
     INSERT INTO metric (
       key, label, description, kind, direction, unit,
       numerator_field, denominator_field, value_field,
-      decimals, is_goal, show_in_table, display_order, enabled
+      decimals, is_goal, show_in_table, display_order, enabled, project_id
     ) VALUES (
       ${input.key}, ${input.label.trim()}, ${normalizeDescription(input.description)},
       ${input.kind}, ${input.direction}, ${input.unit},
       ${input.numeratorField ?? null}, ${input.denominatorField ?? null}, ${input.valueField ?? null},
       ${input.decimals ?? 1}, ${input.isGoal ?? false}, ${input.showInTable ?? true},
-      ${input.displayOrder ?? 100}, ${input.enabled ?? true}
+      ${input.displayOrder ?? 100}, ${input.enabled ?? true}, ${projectId}
     )
   `;
   return input.key;
@@ -146,7 +150,10 @@ function ensureMetricsReady(): Promise<void> {
 async function initMetricsOnce(): Promise<void> {
   await createSchema();
   const sql = getSql();
-  const rows = (await sql`SELECT COUNT(*)::int AS n FROM metric`) as unknown as { n: number }[];
+  // Scoped to the current tenant's project, same "seed once PER PROJECT"
+  // reasoning as lib/store.ts's initOnce — see that function's comment.
+  const projectId = await getCurrentProjectId();
+  const rows = (await sql`SELECT COUNT(*)::int AS n FROM metric WHERE project_id = ${projectId}`) as unknown as { n: number }[];
   if ((rows[0]?.n ?? 0) > 0) return;
   // Per-seed isolation, same reasoning as store.ts's initOnce: a cold-start
   // race (another instance seeding the same key) fails only that seed.
@@ -171,44 +178,56 @@ async function initMetricsOnce(): Promise<void> {
 
 /** Mirrors lib/engine/handlers.ts's REGISTRY_TTL_MS — assignment/results
  *  tolerate a few seconds of staleness; admin edits go through the uncached
- *  reads below so create/edit/enable/disable reflect immediately. */
+ *  reads below so create/edit/enable/disable reflect immediately.
+ *
+ *  Keyed by projectId (a Map, not a single slot): getCurrentTenant() always
+ *  resolves to the same project today, so a single slot would happen to be
+ *  correct either way — but keying by tenant now means real per-request
+ *  resolution can land later without this cache silently serving one
+ *  tenant's metrics to another inside the TTL window. */
 const METRICS_TTL_MS = 10_000;
-let metricsCache: { metrics: MetricDef[]; expiry: number } | null = null;
+const metricsCache = new Map<string, { metrics: MetricDef[]; expiry: number }>();
 
 function invalidateMetricsCache(): void {
-  metricsCache = null;
+  metricsCache.clear();
 }
 
 /** Enabled metrics, display-ordered, short-TTL cached — what buildVerdict()
  *  iterates for every results/verdict computation. */
 export async function getMetrics(): Promise<MetricDef[]> {
+  const projectId = await getCurrentProjectId();
   const now = Date.now();
-  if (metricsCache && metricsCache.expiry > now) return metricsCache.metrics;
+  const cached = metricsCache.get(projectId);
+  if (cached && cached.expiry > now) return cached.metrics;
   await ensureMetricsReady();
   const sql = getSql();
   const rows = (await sql`
-    SELECT * FROM metric WHERE enabled = true ORDER BY display_order ASC, key ASC
+    SELECT * FROM metric WHERE enabled = true AND project_id = ${projectId} ORDER BY display_order ASC, key ASC
   `) as unknown as MetricRow[];
   const metrics = rows.map(toMetricDef).filter((m): m is MetricDef => m !== null);
-  metricsCache = { metrics, expiry: now + METRICS_TTL_MS };
+  metricsCache.set(projectId, { metrics, expiry: now + METRICS_TTL_MS });
   return metrics;
 }
 
-/** ALL metrics (including disabled), uncached — the admin list view. */
+/** ALL metrics (including disabled) in the current tenant's project, uncached
+ *  — the admin list view. */
 export async function listMetricsUncached(): Promise<MetricDef[]> {
   await ensureMetricsReady();
   const sql = getSql();
+  const projectId = await getCurrentProjectId();
   const rows = (await sql`
-    SELECT * FROM metric ORDER BY display_order ASC, key ASC
+    SELECT * FROM metric WHERE project_id = ${projectId} ORDER BY display_order ASC, key ASC
   `) as unknown as MetricRow[];
   return rows.map(toMetricDef).filter((m): m is MetricDef => m !== null);
 }
 
-/** One metric by key (any enabled state), uncached — the admin edit view. */
+/** One metric by key (any enabled state) in the current tenant's project,
+ *  uncached — the admin edit view. */
 export async function getMetric(key: string): Promise<MetricDef | undefined> {
   await ensureMetricsReady();
   const sql = getSql();
-  const rows = (await sql`SELECT * FROM metric WHERE key = ${key}`) as unknown as MetricRow[];
+  const projectId = await getCurrentProjectId();
+  const rows = (await sql`SELECT * FROM metric WHERE key = ${key} AND project_id = ${projectId}`) as unknown as MetricRow[];
   const row = rows[0];
   if (!row) return undefined;
   return toMetricDef(row) ?? undefined;
@@ -238,6 +257,7 @@ export async function updateMetric(key: string, input: MetricInput): Promise<voi
   if (err) throw new Error(err);
   await ensureMetricsReady();
   const sql = getSql();
+  const projectId = await getCurrentProjectId();
   await sql`
     UPDATE metric SET
       label = ${input.label.trim()},
@@ -253,7 +273,7 @@ export async function updateMetric(key: string, input: MetricInput): Promise<voi
       show_in_table = ${input.showInTable ?? true},
       display_order = ${input.displayOrder ?? 100},
       enabled = ${input.enabled ?? true}
-    WHERE key = ${key}
+    WHERE key = ${key} AND project_id = ${projectId}
   `;
   invalidateMetricsCache();
 }
@@ -262,7 +282,8 @@ export async function updateMetric(key: string, input: MetricInput): Promise<voi
 export async function deleteMetric(key: string): Promise<boolean> {
   await ensureMetricsReady();
   const sql = getSql();
-  const rows = (await sql`DELETE FROM metric WHERE key = ${key} RETURNING key`) as unknown as unknown[];
+  const projectId = await getCurrentProjectId();
+  const rows = (await sql`DELETE FROM metric WHERE key = ${key} AND project_id = ${projectId} RETURNING key`) as unknown as unknown[];
   invalidateMetricsCache();
   return rows.length > 0;
 }

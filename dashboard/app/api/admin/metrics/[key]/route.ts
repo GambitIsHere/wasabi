@@ -12,6 +12,7 @@
 // never a 500 for either.
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { requireRole } from "@/lib/authz";
 import { deleteMetric, updateMetric } from "@/lib/metrics";
 import { validateMetricDef } from "@/lib/metrics-core";
 import { parseMetricInput } from "../parse-input";
@@ -23,6 +24,11 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ key: string }> },
 ): Promise<NextResponse> {
+  const gate = await requireRole("admin");
+  if (!gate.ok) {
+    return NextResponse.json({ ok: false, reason: gate.error }, { status: gate.status });
+  }
+
   const { key } = await params;
 
   let raw: unknown;
@@ -63,6 +69,11 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ key: string }> },
 ): Promise<NextResponse> {
+  const gate = await requireRole("admin");
+  if (!gate.ok) {
+    return NextResponse.json({ ok: false, reason: gate.error }, { status: gate.status });
+  }
+
   const { key } = await params;
   try {
     const removed = await deleteMetric(key);

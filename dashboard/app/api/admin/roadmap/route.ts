@@ -7,11 +7,14 @@
 //
 // Body: { id, lane, startWeek, endWeek, position }
 //
-// Auth is enforced by the global NextAuth middleware (this path is NOT in
-// PUBLIC_PREFIXES). Fail-closed: a bad body is a 400 with a reason, never a 500 —
-// a validation problem must never look like a server crash.
+// Authentication is enforced by the global NextAuth middleware (this path is NOT
+// in PUBLIC_PREFIXES). AUTHORIZATION — at least `admin` — is enforced here: it
+// persists edits to the tenant's shared roadmap. Fail-closed: a bad body is a
+// 400 with a reason, never a 500 — a validation problem must never look like a
+// server crash.
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { requireRole } from "@/lib/authz";
 import { LANES, type Lane } from "@/lib/roadmap";
 import {
   updateRoadmapTest,
@@ -56,6 +59,11 @@ function parseBody(body: unknown): RoadmapBody | string {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const gate = await requireRole("admin");
+  if (!gate.ok) {
+    return NextResponse.json({ ok: false, reason: gate.error }, { status: gate.status });
+  }
+
   let raw: unknown;
   try {
     raw = await req.json();

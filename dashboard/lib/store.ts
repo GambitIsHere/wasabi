@@ -26,6 +26,7 @@ import type {
 } from "./mgmt";
 import { slugify } from "./mgmt";
 import { SEED, SEED_PAUSED } from "./seeds";
+import { getCurrentProjectId } from "./tenant";
 
 // ---------------------------------------------------------------------------
 // Row shapes (snake_case, as stored)
@@ -40,6 +41,7 @@ interface ExperimentRow {
   start_date: string;
   created_at: string;
   description: string;
+  project_id: string;
 }
 
 interface VariantRow {
@@ -88,16 +90,26 @@ function toStored(exp: ExperimentRow, variants: VariantRow[]): StoredExperiment 
 // ---------------------------------------------------------------------------
 
 /**
- * All experiments in creation order (seed order preserved). Two round-trips
- * (experiments + all variants) grouped in memory — avoids an N+1 on the /decide
- * hot path.
+ * All experiments in creation order (seed order preserved), scoped to the
+ * current tenant's project. Two round-trips (experiments + their variants)
+ * grouped in memory — avoids an N+1 on the /decide hot path.
+ *
+ * The variant query is JOINed to experiment (rather than a bare
+ * `SELECT * FROM variant`) so it never pulls another tenant's variant rows
+ * over the wire — `variant` itself carries no project_id (see lib/tenant.ts),
+ * so this join IS its tenant filter, not an optimisation.
  */
 export async function listExperiments(): Promise<StoredExperiment[]> {
   await ensureReady();
   const sql = getSql();
+  const projectId = await getCurrentProjectId();
   const [expsRaw, varsRaw] = await Promise.all([
-    sql`SELECT * FROM experiment ORDER BY created_at ASC, key ASC`,
-    sql`SELECT * FROM variant`,
+    sql`SELECT * FROM experiment WHERE project_id = ${projectId} ORDER BY created_at ASC, key ASC`,
+    sql`
+      SELECT v.* FROM variant v
+      JOIN experiment e ON e.key = v.experiment_key
+      WHERE e.project_id = ${projectId}
+    `,
   ]);
   const exps = expsRaw as unknown as ExperimentRow[];
   const byExp = new Map<string, VariantRow[]>();
@@ -109,24 +121,35 @@ export async function listExperiments(): Promise<StoredExperiment[]> {
   return exps.map((e) => toStored(e, byExp.get(e.key) ?? []));
 }
 
-/** One experiment by key, or undefined. */
+/** One experiment by key, or undefined — undefined for a key that exists but
+ *  belongs to another tenant, same as a key that doesn't exist at all. */
 export async function getExperiment(
   key: string,
 ): Promise<StoredExperiment | undefined> {
   await ensureReady();
   const sql = getSql();
-  const exps = (await sql`SELECT * FROM experiment WHERE key = ${key}`) as unknown as ExperimentRow[];
+  const projectId = await getCurrentProjectId();
+  const exps = (await sql`SELECT * FROM experiment WHERE key = ${key} AND project_id = ${projectId}`) as unknown as ExperimentRow[];
   const exp = exps[0];
   if (!exp) return undefined;
+  // experiment.key is a GLOBAL primary key (see lib/tenant.ts's known-limitation
+  // note), so once the row above proves `key` belongs to this tenant, `key` is
+  // unambiguous — no other tenant can hold a variant row under the same
+  // experiment_key. Safe without its own project_id filter.
   const vars = (await sql`SELECT * FROM variant WHERE experiment_key = ${key} ORDER BY position ASC, key ASC`) as unknown as VariantRow[];
   return toStored(exp, vars);
 }
 
-/** True when an experiment with this key already exists. */
+/** True when an experiment with this key already exists IN THIS TENANT. Used
+ *  to gate create-vs-conflict — deliberately does not leak whether the key is
+ *  taken by another tenant (today there's only one; once there's a global-key
+ *  collision risk across tenants, see lib/tenant.ts's known-limitation note,
+ *  this still shouldn't reveal a different tenant's key usage). */
 export async function experimentExists(key: string): Promise<boolean> {
   await ensureReady();
   const sql = getSql();
-  const rows = (await sql`SELECT 1 AS one FROM experiment WHERE key = ${key}`) as unknown as unknown[];
+  const projectId = await getCurrentProjectId();
+  const rows = (await sql`SELECT 1 AS one FROM experiment WHERE key = ${key} AND project_id = ${projectId}`) as unknown as unknown[];
   return rows.length > 0;
 }
 
@@ -139,7 +162,10 @@ export function resolveKey(input: ExperimentInput): string {
   return (input.key && input.key.trim()) || slugify(input.name);
 }
 
-/** Variant INSERT queries for a transaction (collected, not awaited individually). */
+/** Variant INSERT queries for a transaction (collected, not awaited individually).
+ *  No project_id filter needed: `variant` inherits tenancy from experiment_key,
+ *  which every caller here has JUST inserted (insertRaw) or already verified
+ *  belongs to the current tenant (updateExperiment) — see lib/tenant.ts. */
 function variantInserts(
   sql: ReturnType<typeof getSql>,
   experimentKey: string,
@@ -155,12 +181,13 @@ function variantInserts(
 /** Insert experiment + variants atomically. No readiness guard (used by seeding). */
 async function insertRaw(input: ExperimentInput): Promise<string> {
   const sql = getSql();
+  const projectId = await getCurrentProjectId();
   const key = resolveKey(input);
   const createdAt = new Date().toISOString();
   const description = (input.description ?? "").trim();
   await sql.transaction([
-    sql`INSERT INTO experiment (key, name, business, active, goal_metric, start_date, created_at, description)
-        VALUES (${key}, ${input.name.trim()}, ${input.business}, 1, ${input.goalMetric}, ${input.startDate}, ${createdAt}, ${description})`,
+    sql`INSERT INTO experiment (key, name, business, active, goal_metric, start_date, created_at, description, project_id)
+        VALUES (${key}, ${input.name.trim()}, ${input.business}, 1, ${input.goalMetric}, ${input.startDate}, ${createdAt}, ${description}, ${projectId})`,
     ...variantInserts(sql, key, input.variants),
   ]);
   return key;
@@ -180,6 +207,15 @@ export async function insertExperiment(input: ExperimentInput): Promise<string> 
  * Update an existing experiment in place. The key is immutable, so `key` is the
  * lookup target and input.key (if present) is ignored for identity. Variants are
  * replaced wholesale. Preserves the original created_at.
+ *
+ * Ownership is checked BEFORE the transaction, not just via `AND project_id =`
+ * on the UPDATE: sql.transaction() sends a non-interactive batch — every
+ * statement in it runs regardless of whether an earlier one matched a row. If
+ * the UPDATE below were the only guard, a key that exists but belongs to
+ * another tenant would leave that UPDATE a no-op yet still run the DELETE +
+ * re-INSERT of variants (unconditional, keyed only by experiment_key) —
+ * silently overwriting a foreign tenant's variants with this input. The
+ * up-front SELECT turns that into a clean no-op instead.
  */
 export async function updateExperiment(
   key: string,
@@ -187,22 +223,29 @@ export async function updateExperiment(
 ): Promise<void> {
   await ensureReady();
   const sql = getSql();
+  const projectId = await getCurrentProjectId();
+  const owned = (await sql`SELECT 1 AS one FROM experiment WHERE key = ${key} AND project_id = ${projectId}`) as unknown as unknown[];
+  if (owned.length === 0) return; // not found, or owned by another tenant — no-op (caller already 404s via getExperiment)
   const description = (input.description ?? "").trim();
   await sql.transaction([
     sql`UPDATE experiment
           SET name = ${input.name.trim()}, business = ${input.business},
               goal_metric = ${input.goalMetric}, start_date = ${input.startDate},
               description = ${description}
-        WHERE key = ${key}`,
+        WHERE key = ${key} AND project_id = ${projectId}`,
     sql`DELETE FROM variant WHERE experiment_key = ${key}`,
     ...variantInserts(sql, key, input.variants),
   ]);
 }
 
-/** Flip active on/off. Returns true when a row was affected. No readiness guard. */
+/** Flip active on/off. Returns true when a row was affected. No readiness guard.
+ *  Tenant-scoped: also called from the seed loop (initOnce) immediately after
+ *  insertRaw() creates that same row under the current tenant, so the filter
+ *  is correct in both call paths. */
 async function setActiveRaw(key: string, active: boolean): Promise<boolean> {
   const sql = getSql();
-  const rows = (await sql`UPDATE experiment SET active = ${active ? 1 : 0} WHERE key = ${key} RETURNING key`) as unknown as unknown[];
+  const projectId = await getCurrentProjectId();
+  const rows = (await sql`UPDATE experiment SET active = ${active ? 1 : 0} WHERE key = ${key} AND project_id = ${projectId} RETURNING key`) as unknown as unknown[];
   return rows.length > 0;
 }
 
@@ -212,11 +255,14 @@ export async function setActive(key: string, active: boolean): Promise<boolean> 
   return setActiveRaw(key, active);
 }
 
-/** Delete an experiment (variants cascade). Returns true when a row was removed. */
+/** Delete an experiment (variants cascade via ON DELETE CASCADE — which only
+ *  fires when the DELETE below actually matches a row, so a foreign-tenant key
+ *  safely deletes nothing). Returns true when a row was removed. */
 export async function deleteExperiment(key: string): Promise<boolean> {
   await ensureReady();
   const sql = getSql();
-  const rows = (await sql`DELETE FROM experiment WHERE key = ${key} RETURNING key`) as unknown as unknown[];
+  const projectId = await getCurrentProjectId();
+  const rows = (await sql`DELETE FROM experiment WHERE key = ${key} AND project_id = ${projectId} RETURNING key`) as unknown as unknown[];
   return rows.length > 0;
 }
 
@@ -286,7 +332,14 @@ function ensureReady(): Promise<void> {
 async function initOnce(): Promise<void> {
   await createSchema();
   const sql = getSql();
-  const rows = (await sql`SELECT COUNT(*)::int AS n FROM experiment`) as unknown as { n: number }[];
+  // Scoped to the current tenant's project (not a global COUNT) so seed-once
+  // is really "seed once PER PROJECT" — the emptiness check that lets a
+  // future onboarding flow apply this same SEED to a brand-new tenant's
+  // project without first checking whether some OTHER tenant already has
+  // experiments. Today there's one project, so this is equivalent to a
+  // global count; see lib/tenant.ts.
+  const projectId = await getCurrentProjectId();
+  const rows = (await sql`SELECT COUNT(*)::int AS n FROM experiment WHERE project_id = ${projectId}`) as unknown as { n: number }[];
   if ((rows[0]?.n ?? 0) > 0) return;
   // Per-seed isolation: a cold-start race (another instance inserting the same
   // key) fails only that seed, not the rest — so the table still ends up complete

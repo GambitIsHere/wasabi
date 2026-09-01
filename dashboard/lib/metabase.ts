@@ -15,6 +15,7 @@
 //     empty-state with or without the key.
 // ============================================================================
 import type { RegisteredExperiment } from "./experiments";
+import { THEME_SLUG_RE } from "./mgmt";
 import type { VariantRow } from "./verdict";
 
 /** The Metabase database whose name we resolve to an id. */
@@ -43,13 +44,88 @@ export type ResultsOutcome =
 // schema ever renames them, change it HERE only; every rebill ordering flows through.
 const TX_CREATED_AT = "createdAt";
 
+// ---------------------------------------------------------------------------
+// Input validation — the primary guard for resultsSql() below, NOT the
+// quote-escaping it also does. This query runs as Metabase native SQL against
+// "MAIN DB - Production" — the SHARED, LIVE PAYMENTS DATABASE — and its slug +
+// date-window inputs now originate from request bodies (e.g.
+// app/api/admin/attach-payment/route.ts's `slugMap` and `window.start` /
+// `window.end`, which arrive as bare strings checked only for `typeof ===
+// "string"`). Escaping `'` → `''` stops a value from breaking OUT of its
+// string literal, but a strict allow-list checked BEFORE interpolation is
+// what actually keeps an arbitrary caller-supplied string from ever reaching
+// that database, so callers get a clean rejection instead of leaning on
+// escaping alone. Checked here — the one place every caller of the query path
+// (runResults, runPaymentMetrics; see resultsSql's callers below) funnels
+// through — rather than in just one route.
+// ---------------------------------------------------------------------------
+
+/**
+ * A theme slug is valid Metabase query input iff it's a valid Theme.slug
+ * shape — reuses lib/mgmt.ts's THEME_SLUG_RE so the management form (which
+ * writes these slugs) and this production-DB read enforce EXACTLY the same
+ * rule, not two rules that can drift apart.
+ */
+export function isValidThemeSlug(slug: string): boolean {
+  return THEME_SLUG_RE.test(slug);
+}
+
+/**
+ * Strict ISO-8601 date ("2026-09-01") or datetime ("2026-09-01T00:00:00.000Z",
+ * offset or "Z", optional milliseconds) — the only shapes resultsSql() ever
+ * embeds as a `TIMESTAMP '…'` literal. Regex-only (no calendar-correctness
+ * check, e.g. "2026-02-30" still matches), matching the same tradeoff
+ * lib/mgmt.ts's own ISO_DATE_RE already makes for experiment.startDate — a
+ * regex-valid-but-nonexistent date fails harmlessly at Postgres's own
+ * TIMESTAMP cast instead of ever being a query-shape risk.
+ */
+const ISO_DATE_OR_DATETIME_RE =
+  /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})?)?$/;
+
+export function isValidDateInput(value: string): boolean {
+  return ISO_DATE_OR_DATETIME_RE.test(value);
+}
+
+/**
+ * Reject (throw) on the first slug or date that doesn't match the allow-list,
+ * BEFORE resultsSql() below builds so much as one line of SQL text from it.
+ * Called at the very top of resultsSql() — see that function and this
+ * section's header comment for why validation lives here rather than only in
+ * one caller's route handler.
+ */
+function assertValidQueryInputs(
+  slugs: readonly string[],
+  start: string,
+  end?: string,
+): void {
+  for (const slug of slugs) {
+    if (!isValidThemeSlug(slug)) {
+      throw new Error(`Refusing to query Metabase: invalid theme slug "${slug}".`);
+    }
+  }
+  if (!isValidDateInput(start)) {
+    throw new Error(
+      `Refusing to query Metabase: invalid start date "${start}" (expected ISO-8601).`,
+    );
+  }
+  if (end !== undefined && !isValidDateInput(end)) {
+    throw new Error(
+      `Refusing to query Metabase: invalid end date "${end}" (expected ISO-8601).`,
+    );
+  }
+}
+
 function resultsSql(
   slugs: readonly string[],
   start: string,
   end?: string,
 ): string {
-  // slugs, start and end come from our own registry / admin body, never raw user
-  // input, but we still keep this SELECT-only and quote the literals defensively.
+  // PRIMARY guard — see this section's header comment. Throws on anything
+  // that doesn't match the allow-list, before any interpolation below runs.
+  assertValidQueryInputs(slugs, start, end);
+  // Defense-in-depth ONLY from here down: slugs/start/end are now known to
+  // match a strict allow-list, but every literal is still quoted so a valid
+  // slug/date can never itself break out of its SQL string context.
   const slugList = slugs.map((s) => `'${s.replace(/'/g, "''")}'`).join(", ");
   const startLiteral = start.replace(/'/g, "''");
   const ts = `"${TX_CREATED_AT}"`;
@@ -334,6 +410,27 @@ async function runResultsRaw(
   start: string,
   end?: string,
 ): Promise<RawOutcome> {
+  if (slugs.length === 0) {
+    return { available: false, reason: "No theme slugs to query" };
+  }
+  if (!start) {
+    return { available: false, reason: "No cohort start date to query from" };
+  }
+
+  // Build (and, inside resultsSql(), VALIDATE) the query text before checking
+  // config or making any network call — a malformed slug/date is rejected the
+  // same way regardless of whether Metabase is even configured, and never
+  // gets as far as a live round-trip. See resultsSql's own header comment.
+  let sql: string;
+  try {
+    sql = resultsSql(slugs, start, end);
+  } catch (err) {
+    return {
+      available: false,
+      reason: err instanceof Error ? err.message : "Invalid query input",
+    };
+  }
+
   const apiKey = process.env.METABASE_API_KEY;
   if (!apiKey) {
     return { available: false, reason: "METABASE_API_KEY not configured" };
@@ -342,16 +439,9 @@ async function runResultsRaw(
   if (!baseUrl) {
     return { available: false, reason: "METABASE_URL not configured" };
   }
-  if (slugs.length === 0) {
-    return { available: false, reason: "No theme slugs to query" };
-  }
-  if (!start) {
-    return { available: false, reason: "No cohort start date to query from" };
-  }
 
   try {
     const databaseId = await resolveDatabaseId(baseUrl, apiKey);
-    const sql = resultsSql(slugs, start, end);
     const raw = await runNativeQuery(baseUrl, apiKey, databaseId, sql);
     return { available: true, raw };
   } catch (err) {

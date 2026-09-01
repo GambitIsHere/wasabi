@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { JetBrains_Mono } from "next/font/google";
 import { SiteNav } from "@/components/SiteNav";
+import { UnknownWorkspace } from "@/components/UnknownWorkspace";
+import { resolveTenantOrgId } from "@/lib/tenant";
 import "./globals.css";
 
 // Cockpit type system — a native system-UI sans for everything readable (zero
@@ -25,9 +27,27 @@ export const metadata: Metadata = {
 // theme — this is the device-preference default. Prevents a light/dark flash.
 const THEME_INIT = `(function(){try{var t=localStorage.getItem("wasabi-theme");if(t==="light"||t==="dark"){document.documentElement.setAttribute("data-theme",t);}}catch(e){}})();`;
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  // The ONE gate for requirement 1's "unknown subdomain must never silently
+  // fall back to Sanjow": every page in the app renders through this layout,
+  // so checking here — instead of in every individual page — is what makes
+  // "forgot to check" structurally impossible rather than a convention to
+  // remember. Route Handlers (app/api/**/route.ts) are NOT affected (they
+  // don't render through the React tree at all), which is correct: /api/decide
+  // and /api/capture use their own api_key-based resolution, unrelated to
+  // subdomains (see lib/tenant.ts's header comment).
+  //
+  // Resolves via lib/tenant.ts's resolveTenantOrgId(): an authenticated
+  // session's org always wins (renders children regardless of host — see
+  // that file's header comment on the resolution order), so this only ever
+  // actually shows UnknownWorkspace for an UNAUTHENTICATED request to a host
+  // that doesn't resolve to a real org — chiefly /signin and /register on a
+  // bad subdomain, since every gated route already requires a session via
+  // middleware.ts before reaching here.
+  const tenant = await resolveTenantOrgId();
+
   return (
     <html lang="en" className={mono.variable} suppressHydrationWarning>
       <head>
@@ -46,10 +66,14 @@ export default function RootLayout({
                 Experimentation
               </span>
             </Link>
-            <SiteNav />
+            {/* No nav for an unresolved tenant — every link would lead right
+                back to this same "unknown workspace" state. */}
+            {tenant && <SiteNav />}
           </div>
         </header>
-        <main className="mx-auto max-w-6xl px-5 py-10">{children}</main>
+        <main className="mx-auto max-w-6xl px-5 py-10">
+          {tenant ? children : <UnknownWorkspace />}
+        </main>
         <footer className="mx-auto flex max-w-6xl flex-wrap items-baseline justify-between gap-4 px-5 pb-12 pt-6 font-mono text-[11px] text-muted">
           <span>
             Wasabi · PostHog-compatible assignment · payment-P&amp;L verdicts

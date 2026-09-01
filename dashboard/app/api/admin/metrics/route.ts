@@ -12,6 +12,7 @@
 // must never look like a server crash.
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { requireRole } from "@/lib/authz";
 import { createMetric } from "@/lib/metrics";
 import { validateMetricDef } from "@/lib/metrics-core";
 import { parseMetricInput } from "./parse-input";
@@ -20,6 +21,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const gate = await requireRole("admin");
+  if (!gate.ok) {
+    return NextResponse.json({ ok: false, reason: gate.error }, { status: gate.status });
+  }
+
   let raw: unknown;
   try {
     raw = await req.json();

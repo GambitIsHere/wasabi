@@ -3,9 +3,10 @@
 //
 // Body: either a bare array of ArchivedInput, or { experiments: ArchivedInput[] }.
 //
-// Auth is enforced by the global NextAuth middleware (this path is NOT in
-// PUBLIC_PREFIXES, so unauthenticated requests get redirected to /signin before
-// this handler runs).
+// Authentication is enforced by the global NextAuth middleware (this path is NOT
+// in PUBLIC_PREFIXES). AUTHORIZATION — at least `admin` — is enforced here: an
+// import overwrites the tenant's archived experiments, not something a `viewer`
+// or `editor` may do.
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import {
@@ -13,6 +14,7 @@ import {
   upsertManyArchived,
   type ArchivedInput,
 } from "@/lib/archive";
+import { requireRole } from "@/lib/authz";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +39,11 @@ function extractExperiments(body: unknown): ArchivedInput[] | null {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const gate = await requireRole("admin");
+  if (!gate.ok) {
+    return NextResponse.json({ ok: false, error: gate.error }, { status: gate.status });
+  }
+
   let body: unknown;
   try {
     body = await req.json();

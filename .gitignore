@@ -39,3 +39,8 @@ modules/ui/dist.zip
 .env.*
 !.env.example
 
+.vercel
+.vscode/
+.claude/
+design-system/
+dashboard/.claude/

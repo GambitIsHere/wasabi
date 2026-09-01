@@ -60,3 +60,23 @@ export async function getExperiment(
 export async function getThemeMap(key: string): Promise<ThemeMap | undefined> {
   return (await storeGet(key))?.themeMap;
 }
+
+/**
+ * Every theme slug the CURRENT project's experiments reference — the
+ * project-scoped allow-list for any query against the shared global-api
+ * Metabase (app/api/admin/attach-payment, /api/admin/themes). listExperiments()
+ * is already tenant-scoped (lib/store.ts filters by getCurrentProjectId), so
+ * this Set contains only slugs the caller's own project owns. A caller can read
+ * payment data / theme names for these slugs and no others — an arbitrary slug
+ * (another brand's) is not queryable, which is what stops one tenant reading
+ * another brand's revenue off the shared Metabase.
+ */
+export async function getProjectThemeSlugs(): Promise<Set<string>> {
+  const slugs = new Set<string>();
+  for (const exp of await getExperiments()) {
+    for (const { themeSlug } of exp.resultsThemeMap) {
+      if (themeSlug) slugs.add(themeSlug);
+    }
+  }
+  return slugs;
+}

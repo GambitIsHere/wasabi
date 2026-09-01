@@ -13,6 +13,8 @@
 // ============================================================================
 import { getSql, createSchema } from "./db";
 import { slugify } from "./mgmt";
+import { getCurrentProjectId } from "./tenant";
+import { isUniqueViolation } from "./users";
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -137,6 +139,7 @@ interface ArchivedExperimentRow {
   notes: string;
   insight: string;
   imported_at: string;
+  project_id: string;
 }
 
 interface ArchivedVariantRow {
@@ -278,14 +281,24 @@ function toDomain(
 // Reads
 // ---------------------------------------------------------------------------
 
-/** All archived experiments, most-recently-run first. */
+/** All archived experiments, most-recently-run first, scoped to the current
+ *  tenant's project. Like lib/store.ts's listExperiments, the variant query is
+ *  JOINed to its parent (not a bare `SELECT * FROM archived_variant`) so it
+ *  never pulls another tenant's rows over the wire — archived_variant carries
+ *  no project_id itself (see lib/tenant.ts), so the join IS its tenant filter. */
 export async function listArchived(): Promise<ArchivedExperiment[]> {
   await createSchema();
   const sql = getSql();
+  const projectId = await getCurrentProjectId();
   const [expsRaw, varsRaw] = await Promise.all([
     sql`SELECT * FROM archived_experiment
+        WHERE project_id = ${projectId}
         ORDER BY COALESCE(end_date, start_date, imported_at) DESC, name ASC`,
-    sql`SELECT * FROM archived_variant`,
+    sql`
+      SELECT av.* FROM archived_variant av
+      JOIN archived_experiment ae ON ae.key = av.archived_key
+      WHERE ae.project_id = ${projectId}
+    `,
   ]);
   const exps = expsRaw as unknown as ArchivedExperimentRow[];
   const byExp = new Map<string, ArchivedVariantRow[]>();
@@ -297,24 +310,31 @@ export async function listArchived(): Promise<ArchivedExperiment[]> {
   return exps.map((e) => toDomain(e, byExp.get(e.key) ?? []));
 }
 
-/** One archived experiment by key, or undefined. */
+/** One archived experiment by key, or undefined — undefined for a key that
+ *  exists but belongs to another tenant, same as a key that doesn't exist. */
 export async function getArchived(
   key: string,
 ): Promise<ArchivedExperiment | undefined> {
   await createSchema();
   const sql = getSql();
-  const exps = (await sql`SELECT * FROM archived_experiment WHERE key = ${key}`) as unknown as ArchivedExperimentRow[];
+  const projectId = await getCurrentProjectId();
+  const exps = (await sql`SELECT * FROM archived_experiment WHERE key = ${key} AND project_id = ${projectId}`) as unknown as ArchivedExperimentRow[];
   const exp = exps[0];
   if (!exp) return undefined;
+  // archived_experiment.key is a GLOBAL primary key (see lib/tenant.ts's
+  // known-limitation note), so once the row above proves `key` belongs to
+  // this tenant, a plain archived_key lookup can't cross into another
+  // tenant's rows. Safe without its own project_id filter.
   const vars = (await sql`SELECT * FROM archived_variant WHERE archived_key = ${key} ORDER BY position ASC`) as unknown as ArchivedVariantRow[];
   return toDomain(exp, vars);
 }
 
-/** Count of archived experiments. */
+/** Count of archived experiments in the current tenant's project. */
 export async function countArchived(): Promise<number> {
   await createSchema();
   const sql = getSql();
-  const rows = (await sql`SELECT COUNT(*)::int AS n FROM archived_experiment`) as unknown as { n: number }[];
+  const projectId = await getCurrentProjectId();
+  const rows = (await sql`SELECT COUNT(*)::int AS n FROM archived_experiment WHERE project_id = ${projectId}`) as unknown as { n: number }[];
   return rows[0]?.n ?? 0;
 }
 
@@ -322,10 +342,20 @@ export async function countArchived(): Promise<number> {
 // Writes — idempotent upsert (delete + insert, atomic).
 // ---------------------------------------------------------------------------
 
-/** Insert-or-replace one archived experiment + its variants. Returns the key. */
+/**
+ * Insert-or-replace one archived experiment + its variants. Returns the key.
+ *
+ * The DELETE is scoped by project_id so re-importing a key that happens to
+ * belong to ANOTHER tenant can't touch that tenant's row: it deletes nothing,
+ * then the INSERT below hits archived_experiment's PRIMARY KEY (key is
+ * GLOBAL — see lib/tenant.ts's known-limitation note) and throws, aborting
+ * the transaction — a clean fail-closed rather than a silent cross-tenant
+ * overwrite. upsertManyArchived already isolates one bad item from the rest.
+ */
 export async function upsertArchived(input: ArchivedInput): Promise<string> {
   await createSchema();
   const sql = getSql();
+  const projectId = await getCurrentProjectId();
   const key = (input.key && input.key.trim()) || slugify(input.name);
   const variants = normalizeVariants(input.variants ?? []);
   const visitorsTotal = variants.reduce((s, v) => s + v.visitors, 0);
@@ -337,17 +367,17 @@ export async function upsertArchived(input: ArchivedInput): Promise<string> {
   const importedAt = new Date().toISOString();
 
   await sql.transaction([
-    sql`DELETE FROM archived_experiment WHERE key = ${key}`,
+    sql`DELETE FROM archived_experiment WHERE key = ${key} AND project_id = ${projectId}`,
     sql`INSERT INTO archived_experiment
           (key, name, business, source, source_id, source_url, type, status,
            goal_metric, start_date, end_date, winner_variant,
-           visitors_total, conversions_total, hypothesis, notes, insight, imported_at)
+           visitors_total, conversions_total, hypothesis, notes, insight, imported_at, project_id)
         VALUES
           (${key}, ${input.name.trim()}, ${input.business}, ${input.source ?? "vwo"},
            ${input.sourceId ?? null}, ${input.sourceUrl ?? null}, ${input.type ?? null}, ${status},
            ${input.goalMetric ?? null}, ${input.startDate ?? null}, ${input.endDate ?? null},
            ${input.winnerVariant ?? null}, ${visitorsTotal}, ${conversionsTotal},
-           ${(input.hypothesis ?? "").trim()}, ${(input.notes ?? "").trim()}, ${(input.insight ?? "").trim()}, ${importedAt})`,
+           ${(input.hypothesis ?? "").trim()}, ${(input.notes ?? "").trim()}, ${(input.insight ?? "").trim()}, ${importedAt}, ${projectId})`,
     ...variants.map(
       (v) =>
         sql`INSERT INTO archived_variant
@@ -378,9 +408,21 @@ export async function upsertManyArchived(
     try {
       imported.push(await upsertArchived(input));
     } catch (err) {
+      // archived_experiment.key is a GLOBAL primary key across tenants (see
+      // lib/tenant.ts's KNOWN LIMITATION note) and upsertArchived's own DELETE
+      // is project-scoped, so a unique-violation here can ONLY mean the key
+      // belongs to a DIFFERENT tenant (a same-tenant re-import deletes its own
+      // row first, so it never conflicts — see upsertArchived's header
+      // comment). The raw Postgres message names the key, which would confirm
+      // to this caller that some other tenant already owns it — genericise
+      // it. Any other failure keeps its real message.
       failed.push({
         name: input?.name ?? "(unnamed)",
-        error: err instanceof Error ? err.message : String(err),
+        error: isUniqueViolation(err)
+          ? "That experiment key is already in use — pick another."
+          : err instanceof Error
+            ? err.message
+            : String(err),
       });
     }
   }
@@ -407,6 +449,15 @@ export interface VariantPaymentMetrics {
  * an in-place UPDATE per variant, so the imported VWO data (visitors,
  * conversions, uplift) is untouched. Non-matching keys are skipped silently.
  * Returns the variant keys that were actually written.
+ *
+ * Unlike getArchived/upsertArchived, this entry point takes `archivedKey`
+ * with no prior tenant-scoped lookup in the same call, and archived_variant
+ * itself carries no project_id (see lib/tenant.ts) — so without the ownership
+ * check below, a caller could attach payment data onto another tenant's
+ * archived_variant rows. Checked up front (not folded into each UPDATE's
+ * WHERE) for the same non-interactive-transaction reason as
+ * lib/store.ts's updateExperiment: a per-statement filter would leave the
+ * UPDATEs a silent no-op for a foreign key rather than refusing the whole call.
  */
 export async function attachPaymentMetrics(
   archivedKey: string,
@@ -415,6 +466,9 @@ export async function attachPaymentMetrics(
   await createSchema();
   const sql = getSql();
   if (metrics.length === 0) return [];
+  const projectId = await getCurrentProjectId();
+  const owned = (await sql`SELECT 1 AS one FROM archived_experiment WHERE key = ${archivedKey} AND project_id = ${projectId}`) as unknown as unknown[];
+  if (owned.length === 0) return []; // not found, or owned by another tenant
 
   const statements = metrics.map(
     (m) =>
@@ -439,7 +493,7 @@ export async function attachPaymentMetrics(
  * metrics are left intact). This is the non-destructive path: re-importing would
  * cascade-delete the variants and wipe the payment read, so the insight, written
  * after an analytics audit, goes through here instead. Returns true if the row
- * existed.
+ * existed (and belongs to the current tenant).
  */
 export async function setArchivedInsight(
   key: string,
@@ -447,17 +501,20 @@ export async function setArchivedInsight(
 ): Promise<boolean> {
   await createSchema();
   const sql = getSql();
+  const projectId = await getCurrentProjectId();
   const rows = (await sql`UPDATE archived_experiment
                             SET insight = ${insight.trim()}
-                          WHERE key = ${key}
+                          WHERE key = ${key} AND project_id = ${projectId}
                           RETURNING key`) as unknown as unknown[];
   return rows.length > 0;
 }
 
-/** Delete one archived experiment (variants cascade). */
+/** Delete one archived experiment (variants cascade via ON DELETE CASCADE —
+ *  which only fires when the DELETE below actually matches a row). */
 export async function deleteArchived(key: string): Promise<boolean> {
   await createSchema();
   const sql = getSql();
-  const rows = (await sql`DELETE FROM archived_experiment WHERE key = ${key} RETURNING key`) as unknown as unknown[];
+  const projectId = await getCurrentProjectId();
+  const rows = (await sql`DELETE FROM archived_experiment WHERE key = ${key} AND project_id = ${projectId} RETURNING key`) as unknown as unknown[];
   return rows.length > 0;
 }

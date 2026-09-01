@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ROADMAP, type RoadmapLane } from "@/lib/roadmap";
+import { type RoadmapLane } from "@/lib/roadmap";
 import { listRoadmap } from "@/lib/roadmap-store";
 import { reconcileRoadmapMetadata } from "@/lib/roadmap-reconcile";
 import { LANE } from "@/lib/roadmap-format";
@@ -15,8 +15,10 @@ import { listArchived } from "@/lib/archive";
 // The roadmap is now DB-backed (lib/roadmap-store.ts) so drag-and-drop edits
 // persist; the re-run captions and the tested-elements table also deep-link into
 // the archive by `key`, known only from the DB. So render per request and degrade
-// gracefully if the DB is down: fall back to the static ROADMAP and turn dragging
-// off. Same posture as /archive.
+// gracefully if the read fails: render an EMPTY runway with dragging off. It must
+// NEVER fall back to the hardcoded ROADMAP constant — that is Sanjow's own
+// internal plan (real ticket IDs, brands, repos) and would leak verbatim to any
+// other tenant whose read happened to throw.
 export const dynamic = "force-dynamic";
 
 // Verdict → pill classes. settled = bad, retest = warn, broken = info, unread = faint.
@@ -34,14 +36,16 @@ export default async function RoadmapPage() {
   await reconcileRoadmapMetadata();
 
   // The editable runway reads from the DB store; if that's unreachable, render
-  // the static ROADMAP read-only (dragging disabled) so the page never breaks.
+  // an EMPTY runway read-only (dragging disabled) so the page never breaks — and
+  // never the hardcoded ROADMAP constant, which is Sanjow-specific (see the
+  // module comment above on why that fallback was a cross-tenant leak).
   let lanes: RoadmapLane[];
   let editable: boolean;
   try {
     lanes = await listRoadmap();
     editable = true;
   } catch {
-    lanes = ROADMAP;
+    lanes = [];
     editable = false;
   }
 
