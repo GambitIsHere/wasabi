@@ -433,6 +433,27 @@ export async function attachPaymentMetrics(
   return results.flatMap((rows) => rows.map((r) => r.key));
 }
 
+/**
+ * Set the free-text insight on an archived experiment — an in-place UPDATE that
+ * touches nothing else (variants, imported VWO figures and any attached payment
+ * metrics are left intact). This is the non-destructive path: re-importing would
+ * cascade-delete the variants and wipe the payment read, so the insight, written
+ * after an analytics audit, goes through here instead. Returns true if the row
+ * existed.
+ */
+export async function setArchivedInsight(
+  key: string,
+  insight: string,
+): Promise<boolean> {
+  await createSchema();
+  const sql = getSql();
+  const rows = (await sql`UPDATE archived_experiment
+                            SET insight = ${insight.trim()}
+                          WHERE key = ${key}
+                          RETURNING key`) as unknown as unknown[];
+  return rows.length > 0;
+}
+
 /** Delete one archived experiment (variants cascade). */
 export async function deleteArchived(key: string): Promise<boolean> {
   await createSchema();
