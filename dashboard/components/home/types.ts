@@ -44,6 +44,13 @@ export interface ExperimentRowVM {
   split: TrafficSplitArm[];
   controlKey: string;
 
+  /**
+   * Day-over-day series of the challenger's £/acquired (oldest→newest), for the
+   * Trend sparkline. Built forward from daily snapshots (lib/trend.ts), so it's
+   * empty until a couple of days accrue. < 2 points renders as "—".
+   */
+  trend: number[];
+
   // --- verdict + money (Metabase-only; null locally) ---
   verdictAvailable: boolean;
   recommendation: Recommendation | null;

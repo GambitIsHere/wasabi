@@ -23,6 +23,62 @@ const LIVE_REFRESH_MS = 5000;
 // Small presentational helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Inline sparkline of a metric's day-over-day series (oldest→newest). Green when
+ * the latest point sits at or above the first, red when below; the endpoint is
+ * dotted. Fewer than 2 points renders a faint "—" (history still building). No
+ * external chart library — one SVG polyline, theme-aware via --color-* tokens.
+ */
+function Sparkline({ data }: { data: number[] }) {
+  if (data.length < 2) {
+    return (
+      <span
+        className="font-mono text-sm text-faint"
+        title="Trend builds once a couple of days of snapshots accrue"
+      >
+        —
+      </span>
+    );
+  }
+  const w = 68;
+  const h = 22;
+  const pad = 3;
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const span = max - min || 1;
+  const x = (i: number) => pad + (i / (data.length - 1)) * (w - 2 * pad);
+  const y = (v: number) => h - pad - ((v - min) / span) * (h - 2 * pad);
+  const points = data
+    .map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`)
+    .join(" ");
+  const up = data[data.length - 1] >= data[0];
+  const stroke = up ? "var(--color-good)" : "var(--color-bad)";
+  const pct =
+    data[0] !== 0
+      ? ((data[data.length - 1] - data[0]) / Math.abs(data[0])) * 100
+      : 0;
+  return (
+    <svg
+      width={w}
+      height={h}
+      viewBox={`0 0 ${w} ${h}`}
+      className="overflow-visible"
+      role="img"
+      aria-label={`£/acquired trend, ${data.length} days, ${up ? "up" : "down"} ${Math.abs(pct).toFixed(0)}%`}
+    >
+      <polyline
+        points={points}
+        fill="none"
+        stroke={stroke}
+        strokeWidth={1.5}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <circle cx={x(data.length - 1)} cy={y(data[data.length - 1])} r={1.8} style={{ fill: stroke }} />
+    </svg>
+  );
+}
+
 type Tone = "good" | "warn" | "info" | "faint";
 
 const TONE_PILL: Record<Tone, string> = {
@@ -383,12 +439,7 @@ export function ExperimentTable({
                   </td>
                   {/* Trend */}
                   <td className="px-4 py-3">
-                    <span
-                      className="font-mono text-sm text-faint"
-                      title="No trend series available yet"
-                    >
-                      —
-                    </span>
+                    <Sparkline data={row.trend} />
                   </td>
                   {/* Today */}
                   <td className="px-4 py-3 text-right">

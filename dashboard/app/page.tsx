@@ -12,6 +12,7 @@
 // live-events + assignments panels.
 import Link from "next/link";
 import { unstable_cache } from "next/cache";
+import { recordTrend, trendSeries } from "@/lib/trend";
 import { homeMetrics, assignmentsTodayByExperiment } from "@/lib/home";
 import { listExperiments, toRegistered } from "@/lib/store";
 import { runResults } from "@/lib/metabase";
@@ -189,6 +190,20 @@ export default async function HomePage() {
       .map(async (e) => verdictByKey.set(e.key, await loadVerdictCached(e, metricDefs))),
   );
 
+  // Snapshot each experiment's current challenger £/acquired so the Trend column
+  // builds a real day-over-day series, then read the series back for the table.
+  // Best-effort — a trend DB hiccup never blocks the render (both calls swallow).
+  await recordTrend(
+    [...verdictByKey.entries()]
+      .filter(([, v]) => v.available && v.moneyValue != null)
+      .map(([key, v]) => ({
+        key,
+        metricKey: "rev_per_acquired",
+        value: v.moneyValue as number,
+      })),
+  );
+  const trendByKey = await trendSeries("rev_per_acquired", 30);
+
   // Build the flat row view-models + collect banner conditions in one pass.
   const guardrails: GuardrailFlag[] = [];
   const noTraffic: NoTrafficFlag[] = [];
@@ -216,6 +231,7 @@ export default async function HomePage() {
         isControl: v.isControl,
       })),
       controlKey: exp.controlVariant,
+      trend: trendByKey[exp.key] ?? [],
       verdictAvailable: summary.available,
       recommendation: summary.recommendation,
       verdictSubline: summary.subline,
