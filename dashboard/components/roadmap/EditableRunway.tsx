@@ -4,21 +4,35 @@
 // Wasabi — the editable roadmap runway (drag-and-drop timeline).
 // ----------------------------------------------------------------------------
 // The interactive twin of the old static runway grid. Each (lane row × week
-// column) cell is a drop target; each tile is draggable. Dropping a tile onto a
-// cell moves it to that lane and re-times it to start on that week, keeping the
-// tile's duration (endWeek − startWeek) constant and clamping so it never runs
-// past TOTAL_WEEKS. The move is applied optimistically, then POSTed to
+// column) cell is a drop target; each tile can be picked up and dragged. Drop a
+// tile onto a cell to move it to that lane and re-time it to start on that week,
+// keeping the tile's duration (endWeek − startWeek) constant and clamping so it
+// never runs past TOTAL_WEEKS. The move is applied optimistically, then POSTed to
 // /api/admin/roadmap; a failed save rolls the UI back and surfaces an inline
-// error. A tile still click-navigates to its detail page when it wasn't dragged.
+// error. A press without movement is treated as a click and navigates to the
+// tile's detail page.
 //
-// Native HTML5 drag-and-drop — no new dependency, and it maps cleanly onto the
-// CSS grid that already places tiles by gridColumn = startWeek..endWeek.
+// POINTER-EVENT dragging (not native HTML5 drag-and-drop). Native DnD is
+// unreliable here — `draggable` divs inside a CSS grid, with select-none and
+// dataTransfer, often refuse to initiate (the grab cursor shows but the tile
+// never lifts). Pointer events (pointerdown → window pointermove → pointerup)
+// work the same for mouse and trackpad, let us render a real drag ghost, and are
+// hit-tested against the cells with elementFromPoint, so the drop lands exactly
+// where the cursor is. A small movement threshold separates a drag from a click.
 //
 // When `editable` is false (the DB was unreachable and the page fell back to the
 // static roadmap) tiles are not draggable and a note says so — the runway still
 // renders and still click-navigates.
 // ============================================================================
-import { Fragment, useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
   TOTAL_WEEKS,
@@ -32,6 +46,9 @@ import { LANE } from "@/lib/roadmap-format";
 
 const weeks = Array.from({ length: TOTAL_WEEKS }, (_, i) => i + 1);
 const short = (s: string) => (s.length > 26 ? s.slice(0, 25) + "…" : s);
+// Pixels the pointer must travel before a press becomes a drag (below this it's
+// a click). Keeps a normal tap navigating instead of nudging the tile.
+const DRAG_THRESHOLD = 5;
 
 /** Deep-ish clone (lanes + their tests) so optimistic edits never mutate props. */
 function cloneLanes(lanes: RoadmapLane[]): RoadmapLane[] {
@@ -57,6 +74,40 @@ interface OverCell {
   week: number;
 }
 
+// Live drag state, held in a ref (not React state) so the window listeners read
+// the latest values without re-subscribing. `active` flips true once the pointer
+// crosses the threshold; before that the press is still a potential click.
+interface DragState {
+  id: string;
+  ticket: string;
+  fromLane: Lane;
+  label: string;
+  title: string;
+  startX: number;
+  startY: number;
+  active: boolean;
+}
+
+// What the floating ghost needs to paint itself as it follows the cursor.
+interface Ghost {
+  x: number;
+  y: number;
+  label: string;
+  title: string;
+  laneClass: string;
+}
+
+/** Read the (lane, week) drop cell under a viewport point, if any. */
+function cellAt(x: number, y: number): OverCell | null {
+  const el = document.elementFromPoint(x, y);
+  const cell = el?.closest<HTMLElement>('[data-cell="1"]');
+  if (!cell) return null;
+  const lane = cell.dataset.lane as Lane | undefined;
+  const week = Number(cell.dataset.week);
+  if (!lane || !Number.isFinite(week)) return null;
+  return { lane, week };
+}
+
 export function EditableRunway({
   lanes: initialLanes,
   editable,
@@ -66,13 +117,15 @@ export function EditableRunway({
 }) {
   const router = useRouter();
   const [lanes, setLanes] = useState<RoadmapLane[]>(() => cloneLanes(initialLanes));
-  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [ghost, setGhost] = useState<Ghost | null>(null);
   const [over, setOver] = useState<OverCell | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // True once a drag has started on the current tile, so the trailing click that
-  // some browsers fire after a drop doesn't navigate. A plain click never fires
-  // dragstart, so it stays false and navigation proceeds.
-  const dragOccurred = useRef(false);
+
+  const dragRef = useRef<DragState | null>(null);
+  // One controller per active drag; abort() removes all three window listeners
+  // at once, so teardown can't half-happen and there's no listener leak.
+  const listenersRef = useRef<AbortController | null>(null);
+  const dragging = ghost !== null;
 
   // Re-sync from the server when the underlying roadmap actually changes (e.g. a
   // navigation back to the page after someone else moved a tile). Skips when only
@@ -86,66 +139,69 @@ export function EditableRunway({
     }
   }, [serverSig, initialLanes]);
 
-  const dragging = draggingId !== null;
+  // onDrop closes over `lanes`, so keep a ref to the latest version that the
+  // stable window listeners can call without going stale.
+  const onDropRef = useRef<(t: Lane, w: number, id: string) => void>(() => {});
 
-  function onDrop(targetLane: Lane, targetWeek: number, id: string) {
-    setOver(null);
-    if (!id) return;
+  const onDrop = useCallback(
+    (targetLane: Lane, targetWeek: number, id: string) => {
+      if (!id) return;
 
-    // Locate the tile and the lane it currently sits in.
-    let fromLane: Lane | null = null;
-    let tile: RoadmapTest | null = null;
-    for (const l of lanes) {
-      const found = l.tests.find((t) => roadmapTestId(t) === id);
-      if (found) {
-        fromLane = l.lane;
-        tile = found;
-        break;
+      // Locate the tile and the lane it currently sits in.
+      let fromLane: Lane | null = null;
+      let tile: RoadmapTest | null = null;
+      for (const l of lanes) {
+        const found = l.tests.find((t) => roadmapTestId(t) === id);
+        if (found) {
+          fromLane = l.lane;
+          tile = found;
+          break;
+        }
       }
-    }
-    if (!tile || !fromLane) return;
+      if (!tile || !fromLane) return;
 
-    const duration = tile.endWeek - tile.startWeek;
-    // Keep the duration; clamp the start so the tile never runs past the board.
-    const maxStart = TOTAL_WEEKS - duration;
-    const newStart = Math.min(Math.max(targetWeek, 1), Math.max(maxStart, 1));
-    const newEnd = newStart + duration;
+      const duration = tile.endWeek - tile.startWeek;
+      // Keep the duration; clamp the start so the tile never runs past the board.
+      const maxStart = TOTAL_WEEKS - duration;
+      const newStart = Math.min(Math.max(targetWeek, 1), Math.max(maxStart, 1));
+      const newEnd = newStart + duration;
 
-    // No move — same lane, same start. Nothing to persist.
-    if (fromLane === targetLane && newStart === tile.startWeek) return;
+      // No move — same lane, same start. Nothing to persist.
+      if (fromLane === targetLane && newStart === tile.startWeek) return;
 
-    const snapshot = cloneLanes(lanes);
+      const snapshot = cloneLanes(lanes);
 
-    // Build the optimistic next state: pull the tile from its lane, drop the
-    // re-timed copy into the target lane, then order the target lane by start
-    // week and read the tile's index back as its position.
-    const moved: RoadmapTest = { ...tile, startWeek: newStart, endWeek: newEnd };
-    const next = lanes.map((l) => {
-      if (l.lane === fromLane && l.lane === targetLane) {
-        // Same-lane move: remove then re-insert, then sort.
-        const rest = l.tests.filter((t) => roadmapTestId(t) !== id);
-        return { ...l, tests: sortByWeek([...rest, moved]) };
-      }
-      if (l.lane === fromLane) {
-        return { ...l, tests: l.tests.filter((t) => roadmapTestId(t) !== id) };
-      }
-      if (l.lane === targetLane) {
-        return { ...l, tests: sortByWeek([...l.tests, moved]) };
-      }
-      return l;
-    });
+      // Build the optimistic next state: pull the tile from its lane, drop the
+      // re-timed copy into the target lane, then order the target lane by start
+      // week and read the tile's index back as its position.
+      const moved: RoadmapTest = { ...tile, startWeek: newStart, endWeek: newEnd };
+      const next = lanes.map((l) => {
+        if (l.lane === fromLane && l.lane === targetLane) {
+          const rest = l.tests.filter((t) => roadmapTestId(t) !== id);
+          return { ...l, tests: sortByWeek([...rest, moved]) };
+        }
+        if (l.lane === fromLane) {
+          return { ...l, tests: l.tests.filter((t) => roadmapTestId(t) !== id) };
+        }
+        if (l.lane === targetLane) {
+          return { ...l, tests: sortByWeek([...l.tests, moved]) };
+        }
+        return l;
+      });
 
-    const destTests = next.find((l) => l.lane === targetLane)?.tests ?? [];
-    const position = destTests.findIndex((t) => roadmapTestId(t) === id);
+      const destTests = next.find((l) => l.lane === targetLane)?.tests ?? [];
+      const position = destTests.findIndex((t) => roadmapTestId(t) === id);
 
-    setLanes(next);
-    setError(null);
-
-    void persist(
-      { id, lane: targetLane, startWeek: newStart, endWeek: newEnd, position },
-      snapshot,
-    );
-  }
+      setLanes(next);
+      setError(null);
+      void persist(
+        { id, lane: targetLane, startWeek: newStart, endWeek: newEnd, position },
+        snapshot,
+      );
+    },
+    [lanes],
+  );
+  onDropRef.current = onDrop;
 
   async function persist(
     body: {
@@ -176,13 +232,90 @@ export function EditableRunway({
     }
   }
 
-  function navigate(test: RoadmapTest) {
-    if (dragOccurred.current) {
-      dragOccurred.current = false;
-      return;
+  // Tear the current drag down: clear state and remove all window listeners at
+  // once via the abort controller. Stable, and referenced by every handler.
+  const endDrag = useCallback(() => {
+    dragRef.current = null;
+    setGhost(null);
+    setOver(null);
+    listenersRef.current?.abort();
+    listenersRef.current = null;
+  }, []);
+
+  // Stable window handlers — added on pointerdown, torn down by endDrag.
+  const onPointerMove = useCallback((e: PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    if (!d.active) {
+      if (Math.hypot(e.clientX - d.startX, e.clientY - d.startY) < DRAG_THRESHOLD) {
+        return;
+      }
+      d.active = true;
     }
-    if (test.ticket) router.push(`/roadmap/${test.ticket}`);
+    e.preventDefault();
+    setGhost({
+      x: e.clientX,
+      y: e.clientY,
+      label: d.label,
+      title: d.title,
+      laneClass: LANE[d.fromLane].bar,
+    });
+    setOver(cellAt(e.clientX, e.clientY));
+  }, []);
+
+  const onPointerUp = useCallback(
+    (e: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) {
+        endDrag();
+        return;
+      }
+      const wasActive = d.active;
+      const target = wasActive ? cellAt(e.clientX, e.clientY) : null;
+      const ticket = d.ticket;
+      const id = d.id;
+      endDrag();
+      if (!wasActive) {
+        // A press that never crossed the threshold — treat as a click.
+        if (ticket) router.push(`/roadmap/${ticket}`);
+        return;
+      }
+      if (target) onDropRef.current(target.lane, target.week, id);
+    },
+    [endDrag, router],
+  );
+
+  const onPointerCancel = useCallback(() => {
+    endDrag();
+  }, [endDrag]);
+
+  function startPress(e: ReactPointerEvent<HTMLDivElement>, lane: Lane, t: RoadmapTest) {
+    if (!editable || e.button !== 0) return;
+    e.preventDefault(); // stop text selection / native image drag
+    listenersRef.current?.abort(); // clear any stale drag first
+    dragRef.current = {
+      id: roadmapTestId(t),
+      ticket: t.ticket,
+      fromLane: lane,
+      label:
+        (t.ticket || "new") +
+        (t.status === "live" ? " · live" : "") +
+        (t.pilot ? " · pilot" : "") +
+        (t.rerunOf ? " · ↩" : ""),
+      title: short(t.title),
+      startX: e.clientX,
+      startY: e.clientY,
+      active: false,
+    };
+    const ac = new AbortController();
+    listenersRef.current = ac;
+    window.addEventListener("pointermove", onPointerMove, { signal: ac.signal });
+    window.addEventListener("pointerup", onPointerUp, { signal: ac.signal });
+    window.addEventListener("pointercancel", onPointerCancel, { signal: ac.signal });
   }
+
+  // Safety net: drop any lingering listeners if we unmount mid-drag.
+  useEffect(() => endDrag, [endDrag]);
 
   return (
     <div className="space-y-2">
@@ -223,14 +356,14 @@ export function EditableRunway({
                   </span>
                 </div>
 
-                {/* Drop-target cells — one per week. Only reactive while editable. */}
+                {/* Drop-target cells — one per week, hit-tested by elementFromPoint. */}
                 {weeks.map((w) => {
                   const isOver =
                     over !== null && over.lane === laneId && over.week === w;
                   const cellClass = editable
                     ? `rounded-md transition-colors ${
                         isOver
-                          ? "z-20 bg-accent/5 ring-2 ring-inset ring-accent"
+                          ? "bg-accent/5 ring-2 ring-inset ring-accent"
                           : dragging
                             ? "border border-dashed border-line-strong/70"
                             : ""
@@ -239,49 +372,31 @@ export function EditableRunway({
                   return (
                     <div
                       key={`${laneId}-cell-${w}`}
+                      data-cell="1"
+                      data-lane={laneId}
+                      data-week={w}
                       style={{ gridRow: li + 2, gridColumn: w + 1 }}
                       className={cellClass}
-                      onDragOver={
-                        editable
-                          ? (e) => {
-                              e.preventDefault();
-                              e.dataTransfer.dropEffect = "move";
-                              if (!isOver) setOver({ lane: laneId, week: w });
-                            }
-                          : undefined
-                      }
-                      onDrop={
-                        editable
-                          ? (e) => {
-                              e.preventDefault();
-                              onDrop(
-                                laneId,
-                                w,
-                                e.dataTransfer.getData("text/plain") ||
-                                  (draggingId ?? ""),
-                              );
-                            }
-                          : undefined
-                      }
                     />
                   );
                 })}
 
                 {/* Tiles — painted above the cells (later in DOM). Made click-through
-                    while a drag is in flight so the cells beneath receive the drop. */}
+                    while a drag is in flight so elementFromPoint sees the cell beneath. */}
                 {(lane?.tests ?? []).map((t) => {
                   const id = roadmapTestId(t);
-                  const isDragged = draggingId === id;
+                  const isDragged = dragging && dragRef.current?.id === id;
                   const barStyle: CSSProperties = {
                     gridRow: li + 2,
                     gridColumn: `${t.startWeek + 1} / ${t.endWeek + 2}`,
+                    touchAction: editable ? "none" : undefined,
                   };
                   const barClass = [
                     "flex min-h-[48px] flex-col justify-center gap-0.5 rounded-lg border px-2.5 py-1.5 no-underline transition select-none",
                     cls.bar,
                     t.ticket ? "hover:brightness-125" : "",
                     editable ? "cursor-grab" : t.ticket ? "cursor-pointer" : "",
-                    isDragged ? "cursor-grabbing opacity-40" : "",
+                    isDragged ? "cursor-grabbing opacity-30" : "",
                     dragging ? "pointer-events-none" : "",
                   ]
                     .filter(Boolean)
@@ -291,32 +406,10 @@ export function EditableRunway({
                       key={laneId + t.title}
                       style={barStyle}
                       className={barClass}
-                      draggable={editable}
                       role={t.ticket ? "link" : undefined}
                       tabIndex={t.ticket ? 0 : undefined}
                       aria-label={t.ticket ? `${t.ticket} — ${t.title}` : t.title}
-                      onMouseDown={() => {
-                        dragOccurred.current = false;
-                      }}
-                      onDragStart={
-                        editable
-                          ? (e) => {
-                              dragOccurred.current = true;
-                              e.dataTransfer.effectAllowed = "move";
-                              e.dataTransfer.setData("text/plain", id);
-                              setDraggingId(id);
-                            }
-                          : undefined
-                      }
-                      onDragEnd={
-                        editable
-                          ? () => {
-                              setDraggingId(null);
-                              setOver(null);
-                            }
-                          : undefined
-                      }
-                      onClick={() => navigate(t)}
+                      onPointerDown={(e) => startPress(e, laneId, t)}
                       onKeyDown={
                         t.ticket
                           ? (e) => {
@@ -347,6 +440,17 @@ export function EditableRunway({
           })}
         </div>
       </div>
+
+      {/* The floating tile that follows the cursor while dragging. */}
+      {ghost && (
+        <div
+          className={`pointer-events-none fixed z-50 flex min-h-[44px] w-[180px] flex-col justify-center gap-0.5 rounded-lg border px-2.5 py-1.5 opacity-95 shadow-lg ${ghost.laneClass}`}
+          style={{ left: ghost.x + 12, top: ghost.y + 12 }}
+        >
+          <span className="font-mono text-[11px] font-semibold">{ghost.label}</span>
+          <span className="text-[11px] leading-tight text-fg">{ghost.title}</span>
+        </div>
+      )}
 
       {error && (
         <p className="font-mono text-[11px] text-bad" role="alert">
