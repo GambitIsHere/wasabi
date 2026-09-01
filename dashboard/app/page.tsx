@@ -137,6 +137,15 @@ async function loadVerdict(exp: StoredExperiment, metrics: MetricDef[]): Promise
   };
 }
 
+// The KPI strip + live feed (homeMetrics) run two Metabase "today" scans — the
+// last ~4s of the render once verdicts are cached. It's a daily aggregate, so a
+// 10s cache is imperceptibly different from live (nobody watches a day total
+// tick by the second) and the page only refreshes the feed on navigation
+// anyway. Warm home loads drop to ~1s.
+const cachedHomeMetrics = unstable_cache(() => homeMetrics(), ["home-metrics"], {
+  revalidate: 10,
+});
+
 // A per-experiment verdict, cached ~45s in the Next data cache. Keyed by the
 // experiment key (keyParts), so each experiment has its own entry and a variant
 // edit is reflected within the window. Returns the same VerdictSummary shape as
@@ -158,7 +167,7 @@ function loadVerdictCached(
 
 export default async function HomePage() {
   const [metrics, experiments, todayByKey, metricDefs] = await Promise.all([
-    homeMetrics(),
+    cachedHomeMetrics(),
     listExperiments(),
     assignmentsTodayByExperiment(),
     getMetrics(),
