@@ -11,6 +11,7 @@
 // Sections top→bottom: header · KPI strip · alert banners · verdict table ·
 // live-events + assignments panels.
 import Link from "next/link";
+import { unstable_cache } from "next/cache";
 import { homeMetrics, assignmentsTodayByExperiment } from "@/lib/home";
 import { listExperiments, toRegistered } from "@/lib/store";
 import { runResults } from "@/lib/metabase";
@@ -136,6 +137,21 @@ async function loadVerdict(exp: StoredExperiment, metrics: MetricDef[]): Promise
   };
 }
 
+// A per-experiment verdict, cached ~45s in the Next data cache. Keyed by the
+// experiment key (keyParts), so each experiment has its own entry and a variant
+// edit is reflected within the window. Returns the same VerdictSummary shape as
+// loadVerdict (a plain, serialisable object), so callers are unchanged.
+function loadVerdictCached(
+  exp: StoredExperiment,
+  metrics: MetricDef[],
+): Promise<VerdictSummary> {
+  return unstable_cache(
+    () => loadVerdict(exp, metrics),
+    ["home-verdict", exp.key],
+    { revalidate: 45 },
+  )();
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -150,11 +166,18 @@ export default async function HomePage() {
 
   // Verdicts, fanned out over ACTIVE experiments only (bounds the prod query
   // count; paused rows never need Metabase). Each degrades on its own.
+  //
+  // Each verdict is a Metabase query, so N active experiments = N queries — the
+  // dominant cost of this render (several seconds). Verdicts (auth / rebill / £
+  // comparisons) barely move minute to minute, so cache each for 45s: the first
+  // load per window pays it (behind loading.tsx), the rest are near-instant. The
+  // live "collected today" counter comes from homeMetrics, which is NOT cached,
+  // so it stays point-in-time.
   const verdictByKey = new Map<string, VerdictSummary>();
   await Promise.all(
     experiments
       .filter((e) => e.active)
-      .map(async (e) => verdictByKey.set(e.key, await loadVerdict(e, metricDefs))),
+      .map(async (e) => verdictByKey.set(e.key, await loadVerdictCached(e, metricDefs))),
   );
 
   // Build the flat row view-models + collect banner conditions in one pass.
