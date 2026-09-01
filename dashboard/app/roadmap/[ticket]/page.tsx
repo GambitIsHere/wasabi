@@ -1,14 +1,33 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { YT } from "@/lib/roadmap";
+import { YT, type RoadmapTest } from "@/lib/roadmap";
 import { findRoadmapTestAsync } from "@/lib/roadmap-store";
 import { LANE, STATUS } from "@/lib/roadmap-format";
-import { listArchived } from "@/lib/archive";
+import { listArchived, type ArchivedExperiment } from "@/lib/archive";
+import { ArchivedRunDetail } from "@/components/archive/ArchivedRunDetail";
 
-// A re-run caption deep-links into the archive by `key` — known only from the DB
-// — so render per request (the archive import lands here) and degrade to the
-// archive index if the DB isn't reachable. Same posture as /roadmap and /archive.
+// DB-backed: the roadmap store + the archived run this test repeats both land in
+// the DB, so render per request and degrade gracefully if a read fails.
 export const dynamic = "force-dynamic";
+
+/** A neighbour in the lane sequence — a link when it has a ticket, else plain. */
+function Neighbour({ label, test }: { label: string; test: RoadmapTest }) {
+  return (
+    <span className="text-faint">
+      {label}{" "}
+      {test.ticket ? (
+        <Link
+          href={`/roadmap/${test.ticket}`}
+          className="text-info transition-colors hover:text-accent hover:underline"
+        >
+          {test.ticket}
+        </Link>
+      ) : (
+        <span className="text-muted">{test.title}</span>
+      )}
+    </span>
+  );
+}
 
 export default async function RoadmapTestPage({
   params,
@@ -23,19 +42,24 @@ export default async function RoadmapTestPage({
   const laneCls = LANE[lane.lane];
   const status = STATUS[test.status];
 
-  // Resolve a re-run's VWO campaign sourceId → archive `key` for the deep link,
-  // falling back to the archive index when the DB is down at request time.
-  let archiveHref = "/archive";
+  // Placement — where this test sits in its lane's serial sequence.
+  const idx = lane.tests.findIndex((t) => t.ticket === test.ticket);
+  const total = lane.tests.length;
+  const prev = idx > 0 ? lane.tests[idx - 1] : null;
+  const next = idx >= 0 && idx < total - 1 ? lane.tests[idx + 1] : null;
+
+  // The archived run this test repeats (if any) — pulled whole so the evidence
+  // (results, verdict, insight, payment read) renders inline. Degrades to just a
+  // link when the DB is unreachable at request time.
+  let archived: ArchivedExperiment | undefined;
   if (test.rerunOf) {
     try {
-      const match = (await listArchived()).find(
-        (a) => a.sourceId === test.rerunOf,
-      );
-      if (match) archiveHref = `/archive/${match.key}`;
+      archived = (await listArchived()).find((a) => a.sourceId === test.rerunOf);
     } catch {
-      /* DB down — link the archive index instead of the specific run. */
+      /* DB down — link the archive index instead of rendering the run inline. */
     }
   }
+  const archiveHref = archived ? `/archive/${archived.key}` : "/archive";
 
   return (
     <div className="space-y-8">
@@ -79,13 +103,40 @@ export default async function RoadmapTestPage({
         </div>
 
         {test.note && (
-          <p className="max-w-2xl text-sm leading-relaxed text-muted">
-            {test.note}
-          </p>
+          <p className="max-w-2xl text-sm leading-relaxed text-muted">{test.note}</p>
         )}
       </header>
 
-      {/* 3. YouTrack — the external ticket link now lives inside the page. */}
+      {/* 3. Placement — where this test sits in its lane. */}
+      <section className="space-y-2">
+        <p className="eyebrow">Placement</p>
+        <div className="space-y-2.5 rounded-xl border border-line bg-surface px-5 py-4">
+          <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1.5 text-sm">
+            <span className="text-muted">
+              Step <span className="font-semibold text-fg">{idx + 1}</span> of {total}{" "}
+              in the <span className={`font-semibold ${laneCls.text}`}>{lane.lane}</span>{" "}
+              lane
+            </span>
+            <span className="text-muted">
+              Runs{" "}
+              <span className="font-medium text-fg">
+                W{test.startWeek}–{test.endWeek}
+              </span>
+            </span>
+          </div>
+          <div className="font-mono text-[11px] text-faint">
+            {lane.repo} · {lane.site}
+          </div>
+          {(prev || next) && (
+            <div className="flex flex-wrap gap-x-5 gap-y-1 border-t border-line pt-2.5 font-mono text-[11px]">
+              {prev && <Neighbour label="after" test={prev} />}
+              {next && <Neighbour label="before" test={next} />}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* 4. YouTrack — the external ticket link lives inside the page. */}
       <section className="flex flex-wrap items-center gap-3">
         <a
           href={YT(test.ticket)}
@@ -100,30 +151,46 @@ export default async function RoadmapTestPage({
         </span>
       </section>
 
-      {/* 4. Re-run provenance — the archived run this test repeats. */}
+      {/* 5. Evidence — the archived run this test repeats, rendered inline. */}
       {test.rerunOf && (
-        <section className="rounded-xl border border-info/25 bg-info/5 px-5 py-4">
-          <div className="flex items-start gap-3">
-            <span aria-hidden="true" className="mt-0.5 shrink-0 text-info">
-              ↩
-            </span>
-            <div className="space-y-1.5 text-sm leading-relaxed">
-              <p className="font-display font-semibold text-info">
-                Re-runs a past test
-              </p>
-              <p className="text-muted">
-                This repeats an earlier run from the archive — the same lever, a
-                clean re-test.{" "}
-                <Link
-                  href={archiveHref}
-                  className="font-mono text-info transition-colors hover:text-accent hover:underline"
-                >
-                  Campaign #{test.rerunOf} in the archive{" "}
-                  <span aria-hidden="true">→</span>
-                </Link>
-              </p>
-            </div>
+        <section className="space-y-4">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="eyebrow">
+              <span aria-hidden="true" className="mr-1.5 text-info">
+                ↩
+              </span>
+              Evidence — the run this repeats
+            </p>
+            <Link
+              href={archiveHref}
+              className="font-mono text-[11px] text-info transition-colors hover:text-accent hover:underline"
+            >
+              full archive <span aria-hidden="true">→</span>
+            </Link>
           </div>
+
+          {archived ? (
+            <>
+              <p className="max-w-2xl text-sm leading-relaxed text-muted">
+                Repeats{" "}
+                <span className="font-medium text-fg">{archived.name}</span>{" "}
+                (#{test.rerunOf}, {archived.source.toUpperCase()}) — the same lever,
+                a clean re-test. What that run found:
+              </p>
+              <ArchivedRunDetail exp={archived} compact />
+            </>
+          ) : (
+            <p className="max-w-2xl text-sm leading-relaxed text-muted">
+              This repeats an earlier run — the same lever, a clean re-test.{" "}
+              <Link
+                href={archiveHref}
+                className="font-mono text-info transition-colors hover:text-accent hover:underline"
+              >
+                Campaign #{test.rerunOf} in the archive{" "}
+                <span aria-hidden="true">→</span>
+              </Link>
+            </p>
+          )}
         </section>
       )}
     </div>
