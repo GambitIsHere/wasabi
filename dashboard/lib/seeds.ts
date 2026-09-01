@@ -81,16 +81,16 @@ export const SEED: ExperimentInput[] = [
     ],
   },
   {
-    name: "GT — Booking fee: free (control) vs €4.99",
-    key: "gt-booking-fee",
-    business: "Global Tickets",
+    name: "PDF — EX17: current vs v2 (GP-600 pilot)",
+    key: "pdf-ex17-v2",
+    business: "PDF SaaS",
     goalMetric: "revenue_per_acquired",
-    startDate: "2026-07-08",
+    startDate: "2026-09-01",
     description:
-      "Tests whether adding a €4.99 booking fee at checkout reduces conversion enough to offset the per-order revenue lift — a question VWO structurally can't answer (it sees the conversion drop but not the downstream net revenue per acquired customer). Demonstrates the platform covering a 5th business and a 'paid add-on' test pattern.",
+      "Wasabi pilot (GP-600) — the first test to run on the in-house middleware. Split-URL on we-pdf.com: control = the existing EX17 form, variant = EX17_v2 replicated from the pdf-ai repo. Both arms map to real global-api themes so the auth + rebill + net-revenue read is live from day one; first assignment traffic awaits the PDF storefront wire-up.",
     variants: [
-      { key: "control_free", rolloutPercentage: 50, themeSlug: "gt_default", isControl: true },
-      { key: "variant_499", rolloutPercentage: 50, themeSlug: "gt_default_fee_499", isControl: false },
+      { key: "control", rolloutPercentage: 50, themeSlug: "pdf_ex17", isControl: true },
+      { key: "variant_v2", rolloutPercentage: 50, themeSlug: "pdf_ex17_2", isControl: false },
     ],
   },
 ];
@@ -99,7 +99,7 @@ export const SEED: ExperimentInput[] = [
 export const SEED_PAUSED = new Set<string>([
   "as-billing-1m",
   "pdf-price-49-19",
-  "gt-booking-fee",
+  "pdf-ex17-v2",
 ]);
 
 // ============================================================================
