@@ -4,8 +4,15 @@
 // Curated on purpose (NOT the live YouTrack backlog): the tests we've agreed to
 // run, in sequence, across lanes that run in parallel. Lanes never interfere
 // (different sites/traffic); inside a lane, one test at a time — ship the
-// winner, start the next. On VWO now; GP-549 doubles as the Wasabi pilot.
-// Weeks are relative (W1 = kickoff). Edit this list to re-plan.
+// winner, start the next. On VWO now; GP-603 (TU) and GP-600 (PDF) are the first
+// tests to run on Wasabi itself — the pilot — before the middleware plugs into
+// every brand. Weeks are relative (W1 = kickoff). Edit this list to re-plan.
+//
+// The static array is the source of truth for each test's METADATA (ticket,
+// title, surface, status, pilot, note, rerunOf); the DB store owns only the
+// drag-editable LAYOUT (lane, weeks, position) and reconciles metadata from here
+// on load (lib/roadmap-reconcile.ts) — so changing a pilot flag or title here
+// propagates without a reseed and without reverting anyone's drags.
 // ============================================================================
 
 import { slugify } from "./mgmt";
@@ -48,7 +55,7 @@ export const ROADMAP: RoadmapLane[] = [
     tests: [
       { ticket: "GP-502", title: "Ask for one passport number on the landing form", surface: "Landing form", startWeek: 1, endWeek: 2, status: "built" },
       { ticket: "GP-504", title: "Make the phone number mandatory before payment", surface: "Pre-payment form", startWeek: 3, endWeek: 4, status: "built" },
-      { ticket: "GP-549", title: "Trustpilot carousel below payment", surface: "Payment page", startWeek: 5, endWeek: 6, status: "built", pilot: true },
+      { ticket: "GP-549", title: "Trustpilot carousel below payment", surface: "Payment page", startWeek: 5, endWeek: 6, status: "built" },
       { ticket: "GP-124", title: "Nylas “connect your inbox” — re-run", surface: "Landing + passengers", startWeek: 7, endWeek: 9, status: "built", note: "Re-runs the GP-69 painted door in a live placement", rerunOf: "369" },
     ],
   },
@@ -69,7 +76,7 @@ export const ROADMAP: RoadmapLane[] = [
     repo: "prepaid-mobile-recharge-ai",
     site: "recharge landing",
     tests: [
-      { ticket: "GP-603", title: "Reassurance banner — fresh design + new USPs", surface: "Header banner", startWeek: 1, endWeek: 3, status: "pending", note: "Re-run of GP-303 (dead goal, 0 conversions) — GP-603 in S16", rerunOf: "362" },
+      { ticket: "GP-603", title: "Reassurance banner — fresh design + new USPs", surface: "Header banner", startWeek: 1, endWeek: 3, status: "pending", pilot: true, note: "Wasabi pilot — first test on the in-house middleware. Re-run of GP-303 (dead goal, 0 conversions) — GP-603 in S16", rerunOf: "362" },
     ],
   },
   {
@@ -78,7 +85,7 @@ export const ROADMAP: RoadmapLane[] = [
     repo: "pdf",
     site: "we-pdf.com · EX17 landing",
     tests: [
-      { ticket: "GP-600", title: "EX17 v2 vs current — split URL", surface: "we-pdf.com landing", startWeek: 1, endWeek: 4, status: "pending", note: "Two URLs on the pdf repo: control = the existing EX17, variant = EX17_v2 replicated from the pdf-ai repo" },
+      { ticket: "GP-600", title: "EX17 v2 vs current — split URL", surface: "we-pdf.com landing", startWeek: 1, endWeek: 4, status: "pending", pilot: true, note: "Wasabi pilot — first test on the in-house middleware. Two URLs on the pdf repo: control = the existing EX17, variant = EX17_v2 replicated from the pdf-ai repo" },
     ],
   },
 ];
