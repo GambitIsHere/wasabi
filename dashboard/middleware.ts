@@ -36,7 +36,7 @@ function isPublic(pathname: string): boolean {
 const gate = auth((req) => {
   const { pathname, search } = req.nextUrl;
   if (isPublic(pathname)) return;
-  if (req.auth) return; // signed in → continue
+  if (req.auth?.user) return; // signed in → continue
 
   const signInUrl = new URL("/signin", req.nextUrl.origin);
   signInUrl.searchParams.set("callbackUrl", pathname + search);
