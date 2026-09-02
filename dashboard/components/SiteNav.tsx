@@ -12,6 +12,7 @@ const LINKS = [
   { href: "/roadmap", label: "Roadmap" },
   { href: "/backlog", label: "Backlog" },
   { href: "/archive", label: "Archive" },
+  { href: "/ledger", label: "Ledger" },
 ];
 
 export function SiteNav() {
