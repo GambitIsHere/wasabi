@@ -15,11 +15,15 @@ const LINKS = [
   { href: "/ledger", label: "Ledger" },
 ];
 
-export function SiteNav() {
+// `canManage` gates the Settings entry — true only for an org admin/owner (see
+// app/layout.tsx). This is UX only: /settings and its actions re-authorize
+// server-side, so a hidden link is never the security boundary.
+export function SiteNav({ canManage = false }: { canManage?: boolean }) {
   const pathname = usePathname();
+  const links = canManage ? [...LINKS, { href: "/settings", label: "Settings" }] : LINKS;
   return (
     <nav className="flex items-center gap-1 text-sm">
-      {LINKS.map((l) => {
+      {links.map((l) => {
         const active =
           l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);
         return (

@@ -85,7 +85,7 @@ export default async function RoadmapTestPage({
           </span>
           {test.pilot && (
             <span className="inline-flex items-center rounded-full border border-violet/30 bg-violet/10 px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wide text-violet">
-              Wasabi pilot
+              Optimiser.Pro pilot
             </span>
           )}
         </div>

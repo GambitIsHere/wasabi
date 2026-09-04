@@ -74,7 +74,7 @@ export default async function RoadmapPage() {
         <p className="max-w-2xl text-muted">
           Every experiment we&apos;ve committed to run, as parallel lanes on a shared clock.
           Lanes never interfere; inside a lane, one test at a time — ship the winner, start
-          the next. On VWO now; GP-603 and GP-600 are the first tests running on Wasabi
+          the next. On VWO now; GP-603 and GP-600 are the first tests running on Optimiser.Pro
           itself — the pilot. Week&nbsp;1 = kickoff.
         </p>
       </section>

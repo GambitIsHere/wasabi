@@ -8,7 +8,7 @@ import type { Metadata } from "next";
 import { LedgerView } from "@/components/ledger/LedgerView";
 
 export const metadata: Metadata = {
-  title: "Experiment Ledger · Wasabi",
+  title: "Experiment Ledger · Optimiser.Pro",
   description:
     "Every VWO experiment, pulled apart to page, element, change and result.",
 };

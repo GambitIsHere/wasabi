@@ -546,7 +546,7 @@ export function EditableRunway({
                         <span className="rounded bg-bg px-1.5 py-0.5 font-mono text-[10px] text-muted">{t.surface}</span>
                         <span className="rounded bg-bg px-1.5 py-0.5 font-mono text-[10px] text-fg">W{t.startWeek}–{t.endWeek}</span>
                         <span className={`inline-flex items-center rounded-full border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wide ${STATUS[t.status].cls}`}>{STATUS[t.status].label}</span>
-                        {t.pilot && <span className="inline-flex items-center rounded-full border border-violet/30 bg-violet/10 px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wide text-violet">Wasabi pilot</span>}
+                        {t.pilot && <span className="inline-flex items-center rounded-full border border-violet/30 bg-violet/10 px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wide text-violet">Optimiser.Pro pilot</span>}
                       </div>
                       {t.rerunOf && (
                         <Link href={archiveHref(t.rerunOf)} className="inline-flex items-center gap-1 font-mono text-[10px] text-info transition-colors hover:text-accent">

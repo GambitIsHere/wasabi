@@ -3,6 +3,8 @@ import Link from "next/link";
 import { JetBrains_Mono } from "next/font/google";
 import { SiteNav } from "@/components/SiteNav";
 import { UnknownWorkspace } from "@/components/UnknownWorkspace";
+import { auth } from "@/auth";
+import { roleAtLeast } from "@/lib/roles";
 import { resolveTenantOrgId } from "@/lib/tenant";
 import "./globals.css";
 
@@ -16,9 +18,9 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Wasabi — in-house experimentation",
+  title: "Optimiser.Pro — in-house experimentation",
   description:
-    "Wasabi is Sanjow's in-house, PostHog-compatible experimentation engine: sticky variant assignment plus a payment-P&L verdict on every test.",
+    "Optimiser.Pro is Sanjow's in-house, PostHog-compatible experimentation engine: sticky variant assignment plus a payment-P&L verdict on every test.",
 };
 
 // Runs synchronously in <head> before first paint: reads the persisted theme
@@ -48,6 +50,13 @@ export default async function RootLayout({
   // middleware.ts before reaching here.
   const tenant = await resolveTenantOrgId();
 
+  // Show the Settings nav entry only to an org admin/owner. Read from the JWT
+  // claim (cheap, no DB round-trip) — the /settings page and its actions
+  // re-authorize against the DB, so this is a UX decision, not a gate. A
+  // pre-migration session with no `role` claim simply won't see the link.
+  const session = await auth();
+  const canManageOrg = Boolean(session?.role && roleAtLeast(session.role, "admin"));
+
   return (
     <html lang="en" className={mono.variable} suppressHydrationWarning>
       <head>
@@ -60,7 +69,7 @@ export default async function RootLayout({
           <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
             <Link href="/" className="group flex items-center gap-3">
               <span className="font-display text-xl font-semibold tracking-tight text-fg transition-colors group-hover:text-accent">
-                <span aria-hidden="true">🌶</span> Wasabi
+                Optimiser<span className="text-accent">.Pro</span>
               </span>
               <span className="hidden font-mono text-[10px] uppercase tracking-[0.18em] text-accent sm:inline">
                 Experimentation
@@ -68,7 +77,7 @@ export default async function RootLayout({
             </Link>
             {/* No nav for an unresolved tenant — every link would lead right
                 back to this same "unknown workspace" state. */}
-            {tenant && <SiteNav />}
+            {tenant && <SiteNav canManage={canManageOrg} />}
           </div>
         </header>
         <main className="mx-auto max-w-6xl px-5 py-10">
@@ -76,7 +85,7 @@ export default async function RootLayout({
         </main>
         <footer className="mx-auto flex max-w-6xl flex-wrap items-baseline justify-between gap-4 px-5 pb-12 pt-6 font-mono text-[11px] text-muted">
           <span>
-            Wasabi · PostHog-compatible assignment · payment-P&amp;L verdicts
+            PostHog-compatible assignment · payment-P&amp;L verdicts
           </span>
           <span>
             Sanjow Ventures · <span className="text-accent">Optimiser.Pro</span>

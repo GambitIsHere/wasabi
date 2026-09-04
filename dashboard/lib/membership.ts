@@ -10,7 +10,13 @@
 // (requirement 4) must be the SAME rule regardless of how someone joined.
 // ============================================================================
 import { createSchema, getSql } from "./db";
-import { isMembershipRole, roleAtLeast, type MembershipRole } from "./roles";
+import {
+  isMembershipRole,
+  isUserStatus,
+  roleAtLeast,
+  type MembershipRole,
+  type UserStatus,
+} from "./roles";
 import type { User } from "./users";
 
 // Defence-in-depth: never ship the DB layer to the browser.
@@ -208,4 +214,105 @@ export async function userHasRoleInOrg(
   const membership = await getMembership(user.id, orgId);
   if (!membership) return false;
   return roleAtLeast(membership.role, minimum);
+}
+
+/** One member of an org, joined with the identity + account status the
+ *  Settings member directory renders. `status` lives on `user` (a "pending"
+ *  self-registration awaiting approval), `role` + `joinedAt` on `membership`
+ *  — see lib/db.ts's header comment on the two tables. */
+export interface OrgMember {
+  userId: string;
+  email: string;
+  name: string | null;
+  image: string | null;
+  role: MembershipRole;
+  status: UserStatus;
+  joinedAt: string;
+}
+
+interface OrgMemberRow {
+  user_id: string;
+  email: string;
+  name: string | null;
+  image: string | null;
+  role: string;
+  status: string;
+  created_at: string;
+}
+
+/** Every member of `orgId` — active, pending and suspended alike — for the
+ *  Settings member directory (app/settings). Oldest membership first; the
+ *  page groups pending rows to the top for approval. Both unrecognised
+ *  role/status values fail closed to the least-privileged interpretation
+ *  ("viewer" / "suspended"), mirroring toMembership()/toUser(). */
+export async function listMembersForOrg(orgId: string): Promise<OrgMember[]> {
+  await createSchema();
+  const sql = getSql();
+  const rows = (await sql`
+    SELECT u.id AS user_id, u.email, u.name, u.image, m.role, u.status, m.created_at
+    FROM membership m
+    JOIN "user" u ON u.id = m.user_id
+    WHERE m.org_id = ${orgId}
+    ORDER BY m.created_at ASC
+  `) as unknown as OrgMemberRow[];
+  return rows.map((row) => ({
+    userId: row.user_id,
+    email: row.email,
+    name: row.name,
+    image: row.image,
+    role: isMembershipRole(row.role) ? row.role : "viewer",
+    status: isUserStatus(row.status) ? row.status : "suspended",
+    joinedAt: row.created_at,
+  }));
+}
+
+/** Count of members holding the "owner" role in `orgId`, regardless of
+ *  account status. The Settings role/remove actions read this before demoting
+ *  or removing an owner so an org can never be left with zero owners (which
+ *  would strand it — no one could ever grant a role again). */
+export async function countOwnersForOrg(orgId: string): Promise<number> {
+  await createSchema();
+  const sql = getSql();
+  const rows = (await sql`
+    SELECT COUNT(*)::int AS n FROM membership WHERE org_id = ${orgId} AND role = 'owner'
+  `) as unknown as { n: number }[];
+  return rows[0]?.n ?? 0;
+}
+
+/** Set a member's role. Returns the updated row, or null when no membership
+ *  exists for (userId, orgId) — the caller (app/settings/actions.ts) has
+ *  already authorized and range-checked the change; this is the plain write. */
+export async function updateMembershipRole(
+  userId: string,
+  orgId: string,
+  role: MembershipRole,
+): Promise<Membership | null> {
+  await createSchema();
+  const sql = getSql();
+  const rows = (await sql`
+    UPDATE membership SET role = ${role}
+    WHERE user_id = ${userId} AND org_id = ${orgId}
+    RETURNING *
+  `) as unknown as MembershipRow[];
+  const row = rows[0];
+  return row ? toMembership(row) : null;
+}
+
+/** Remove a member from an org — deletes the `membership` row only (the
+ *  `user` account itself is untouched; a user can belong to more than one
+ *  org). Returns true when a row was deleted, false when none matched.
+ *
+ *  Note the lazy-provisioning caveat in lib/authz.ts: a removed member whose
+ *  email still matches the org's verified domain would be re-provisioned as a
+ *  "viewer" on their next authorized action. Removal is therefore fully
+ *  effective as a demotion (an admin/owner drops to nothing, then re-enters at
+ *  viewer) and fully effective for a user off the verified domain; suspending
+ *  the user account (lib/users.setUserStatus) is the lever for a hard lockout. */
+export async function deleteMembership(userId: string, orgId: string): Promise<boolean> {
+  await createSchema();
+  const sql = getSql();
+  const rows = (await sql`
+    DELETE FROM membership WHERE user_id = ${userId} AND org_id = ${orgId} RETURNING user_id
+  `) as unknown as { user_id: string }[];
+  return rows.length > 0;
 }

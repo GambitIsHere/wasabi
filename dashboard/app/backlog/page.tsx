@@ -70,7 +70,7 @@ export default async function BacklogPage({
         <p className="max-w-3xl text-sm leading-relaxed text-muted">
           Every A/B test the org runs starts life as a YouTrack ticket — almost
           always &ldquo;create a new theme &rarr; run the split&rdquo;, which is
-          exactly Wasabi&apos;s variant&rarr;
+          exactly Optimiser.Pro&apos;s variant&rarr;
           <code className="font-mono text-xs text-accent/90">?theme=</code>{" "}
           model. This is that backlog, pulled live and tagged by business, so you
           can turn a ticket straight into a measured experiment.
@@ -165,7 +165,7 @@ function TicketRow({ t }: { t: BacklogTicket }) {
         <Link
           href={newHref}
           className="text-faint transition-colors hover:text-accent"
-          title="Spin up a Wasabi experiment prefilled from this ticket"
+          title="Spin up an Optimiser.Pro experiment prefilled from this ticket"
         >
           + Test
         </Link>

@@ -10,7 +10,7 @@ export default function NotFound() {
         Page not found
       </h1>
       <p className="mt-1.5 max-w-sm text-sm text-muted">
-        That page isn&apos;t part of Wasabi. Check the address, or head back to
+        That page isn&apos;t part of Optimiser.Pro. Check the address, or head back to
         the experiments.
       </p>
       <Link href="/" className="btn-primary mt-5">

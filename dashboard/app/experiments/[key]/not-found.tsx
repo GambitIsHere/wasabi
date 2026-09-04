@@ -10,7 +10,7 @@ export default function ExperimentNotFound() {
         Experiment not found
       </h1>
       <p className="mt-1.5 max-w-sm text-sm text-muted">
-        That experiment key isn&apos;t in the Wasabi registry.
+        That experiment key isn&apos;t in the Optimiser.Pro registry.
       </p>
       <Link href="/" className="btn-primary mt-5">
         Back to experiments
