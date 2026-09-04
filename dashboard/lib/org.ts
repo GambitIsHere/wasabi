@@ -86,6 +86,26 @@ export async function getFirstProjectIdForOrg(orgId: string): Promise<string | n
 }
 
 /**
+ * The candidate org slug middleware.ts resolved for THIS request, read off the
+ * trusted header with ZERO I/O — no database round-trip, unlike
+ * resolveOrgFromRequestHeader below. Returns null when middleware couldn't read
+ * a candidate slug off the Host at all (apex, reserved word, unrecognised host).
+ *
+ * A non-null slug is a CANDIDATE, not proof the org exists — the existence check
+ * is getOrgBySlug's job. This exists so a caller that already trusts an org id
+ * (lib/tenant.ts's session fast path) can cheaply tell "does this host even name
+ * a DIFFERENT org than the one I already trust?" before paying for a DB lookup:
+ * organization.id IS the slug (see this module's header), so the header slug can
+ * be compared directly against a known org id with no query.
+ *
+ * Same trust boundary as resolveOrgFromRequestHeader — see its comment below.
+ */
+export async function readOrgSlugHeader(): Promise<string | null> {
+  const h = await headers();
+  return h.get(ORG_SLUG_HEADER);
+}
+
+/**
  * Read the org slug middleware.ts resolved for THIS request off the trusted
  * header, and look it up. Returns null when either step comes up empty:
  * no header (middleware couldn't read a candidate slug off the Host at all)
@@ -102,8 +122,7 @@ export async function getFirstProjectIdForOrg(orgId: string): Promise<string | n
  * assets) would break that guarantee.
  */
 export async function resolveOrgFromRequestHeader(): Promise<Organization | null> {
-  const h = await headers();
-  const slug = h.get(ORG_SLUG_HEADER);
+  const slug = await readOrgSlugHeader();
   if (!slug) return null;
   return getOrgBySlug(slug);
 }
