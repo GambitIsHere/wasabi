@@ -23,12 +23,23 @@ import type { Session } from "next-auth";
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/org", () => ({
   resolveOrgFromRequestHeader: vi.fn(),
+  readOrgSlugHeader: vi.fn(),
+  getOrgBySlug: vi.fn(),
   getOrgById: vi.fn(),
   getFirstProjectIdForOrg: vi.fn(),
 }));
+vi.mock("@/lib/membership", () => ({ getMembership: vi.fn() }));
+vi.mock("@/lib/users", () => ({ findUserByEmail: vi.fn() }));
 
 import { auth } from "@/auth";
-import { getFirstProjectIdForOrg, resolveOrgFromRequestHeader } from "@/lib/org";
+import {
+  getFirstProjectIdForOrg,
+  getOrgBySlug,
+  readOrgSlugHeader,
+  resolveOrgFromRequestHeader,
+} from "@/lib/org";
+import { getMembership } from "@/lib/membership";
+import { findUserByEmail } from "@/lib/users";
 import {
   SANJOW_DEFAULT_PROJECT_ID,
   SANJOW_DEFAULT_PROJECT_NAME,
@@ -52,7 +63,11 @@ import {
 type SessionGetter = () => Promise<Session | null>;
 const mockAuth = vi.mocked(auth as unknown as SessionGetter);
 const mockResolveOrgFromRequestHeader = vi.mocked(resolveOrgFromRequestHeader);
+const mockReadOrgSlugHeader = vi.mocked(readOrgSlugHeader);
+const mockGetOrgBySlug = vi.mocked(getOrgBySlug);
 const mockGetFirstProjectIdForOrg = vi.mocked(getFirstProjectIdForOrg);
+const mockGetMembership = vi.mocked(getMembership);
+const mockFindUserByEmail = vi.mocked(findUserByEmail);
 
 /** A minimally-valid Session for the mock — only `orgId` matters to
  *  lib/tenant.ts; `expires` is required by DefaultSession's shape. */
@@ -60,19 +75,78 @@ function sessionWithOrg(orgId: string | undefined): Session {
   return { expires: new Date(Date.now() + 60_000).toISOString(), orgId };
 }
 
+/** A session carrying both an org claim and a user email — the shape the
+ *  host-switch path needs (it derives the user id from session.user.email, the
+ *  only stable identifier the JWT session strategy exposes — see
+ *  resolveSessionUserId in lib/tenant.ts). */
+function authedSession(orgId: string, email: string | undefined): Session {
+  return {
+    expires: new Date(Date.now() + 60_000).toISOString(),
+    orgId,
+    user: { email },
+  };
+}
+
+/** A membership row — only its non-null-ness matters to the host-switch check
+ *  (any role means "is a member"); the fields satisfy the return type. */
+function membershipRow(userId: string, orgId: string) {
+  return { userId, orgId, role: "viewer" as const, createdAt: new Date().toISOString() };
+}
+
+/** A full Organization row for the getOrgBySlug existence check. */
+function orgRow(id: string) {
+  return { id, name: id, verifiedDomain: `${id}.com`, createdAt: new Date().toISOString() };
+}
+
+/** A user row for findUserByEmail — only `id` is read by resolveSessionUserId,
+ *  but the object is cast to the real User type the mock is typed against. */
+function userRow(id: string, email: string) {
+  return { id, email } as unknown as NonNullable<
+    Awaited<ReturnType<typeof findUserByEmail>>
+  >;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  // Baselines: no host slug on the header, nothing exists, nobody is a member.
+  // Each host-switch test overrides exactly the ones it exercises, so a test
+  // can't accidentally inherit another's host/membership state (clearAllMocks
+  // resets calls but NOT implementations — set the defaults explicitly).
+  mockReadOrgSlugHeader.mockResolvedValue(null);
+  mockGetOrgBySlug.mockResolvedValue(null);
+  mockGetMembership.mockResolvedValue(null);
+  mockFindUserByEmail.mockResolvedValue(null);
 });
 
 describe("resolveTenantOrgId / getCurrentTenant — session fast path", () => {
-  it("uses session.orgId and never calls lib/org.ts at all", async () => {
+  it("uses session.orgId and does ZERO DB round-trips when the host names no org", async () => {
     mockAuth.mockResolvedValue(sessionWithOrg(SANJOW_ORG_ID));
+    mockReadOrgSlugHeader.mockResolvedValue(null); // host carries no org slug
 
     await expect(resolveTenantOrgId()).resolves.toEqual({
       orgId: SANJOW_ORG_ID,
       source: "session",
     });
+    // The header read is allowed (it's header-only, no query); every
+    // DB-touching resolver must be untouched — that's the fast path's guarantee.
     expect(mockResolveOrgFromRequestHeader).not.toHaveBeenCalled();
+    expect(mockGetOrgBySlug).not.toHaveBeenCalled();
+    expect(mockFindUserByEmail).not.toHaveBeenCalled();
+    expect(mockGetMembership).not.toHaveBeenCalled();
+  });
+
+  it("stays on the fast path (no membership lookup, no DB) when the host names the SESSION's own org", async () => {
+    mockAuth.mockResolvedValue(authedSession(SANJOW_ORG_ID, "ceo@sanjow.com"));
+    mockReadOrgSlugHeader.mockResolvedValue(SANJOW_ORG_ID); // host slug == session org
+
+    await expect(resolveTenantOrgId()).resolves.toEqual({
+      orgId: SANJOW_ORG_ID,
+      source: "session",
+    });
+    // Same org → no existence check, no user lookup, no membership lookup.
+    expect(mockGetOrgBySlug).not.toHaveBeenCalled();
+    expect(mockFindUserByEmail).not.toHaveBeenCalled();
+    expect(mockGetMembership).not.toHaveBeenCalled();
   });
 
   it("getCurrentTenant resolves Sanjow's project with zero I/O even via the session path", async () => {
@@ -110,6 +184,98 @@ describe("resolveTenantOrgId / getCurrentTenant — session fast path", () => {
       source: "subdomain",
     });
     expect(mockResolveOrgFromRequestHeader).toHaveBeenCalledOnce();
+  });
+});
+
+describe("resolveTenantOrgId — host-switch (host wins for a member)", () => {
+  it("switches to the HOST org when the signed-in user is a member of it", async () => {
+    // Signed into acme, but the request landed on beta's host, and this user is
+    // ALSO a member of beta → resolve to beta for this request.
+    mockAuth.mockResolvedValue(authedSession("acme", "user@shared.com"));
+    mockReadOrgSlugHeader.mockResolvedValue("beta");
+    mockGetOrgBySlug.mockResolvedValue(orgRow("beta")); // host org is real
+    mockFindUserByEmail.mockResolvedValue(userRow("u1", "user@shared.com"));
+    mockGetMembership.mockResolvedValue(membershipRow("u1", "beta")); // member of the host org
+
+    await expect(resolveTenantOrgId()).resolves.toEqual({
+      orgId: "beta",
+      source: "session-host-switch",
+    });
+    expect(mockGetOrgBySlug).toHaveBeenCalledWith("beta");
+    expect(mockGetMembership).toHaveBeenCalledWith("u1", "beta");
+  });
+
+  it("getCurrentTenant resolves the HOST org's project after a switch", async () => {
+    mockAuth.mockResolvedValue(authedSession("acme", "user@shared.com"));
+    mockReadOrgSlugHeader.mockResolvedValue("beta");
+    mockGetOrgBySlug.mockResolvedValue(orgRow("beta"));
+    mockFindUserByEmail.mockResolvedValue(userRow("u1", "user@shared.com"));
+    mockGetMembership.mockResolvedValue(membershipRow("u1", "beta"));
+    mockGetFirstProjectIdForOrg.mockResolvedValue("beta-default");
+
+    await expect(getCurrentTenant()).resolves.toEqual({
+      orgId: "beta",
+      projectId: "beta-default",
+    });
+    expect(mockGetFirstProjectIdForOrg).toHaveBeenCalledWith("beta");
+  });
+
+  it("keeps the SESSION org when the user is NOT a member of the host org", async () => {
+    mockAuth.mockResolvedValue(authedSession("acme", "user@acme.com"));
+    mockReadOrgSlugHeader.mockResolvedValue("beta");
+    mockGetOrgBySlug.mockResolvedValue(orgRow("beta")); // host org is real
+    mockFindUserByEmail.mockResolvedValue(userRow("u1", "user@acme.com"));
+    mockGetMembership.mockResolvedValue(null); // NOT a member of beta
+
+    await expect(resolveTenantOrgId()).resolves.toEqual({
+      orgId: "acme",
+      source: "session",
+    });
+    // Critically: never resolved to the host org the user has no membership in.
+    expect(mockGetMembership).toHaveBeenCalledWith("u1", "beta");
+  });
+
+  it("keeps the SESSION org when the host slug is not a real org (no phantom switch)", async () => {
+    mockAuth.mockResolvedValue(authedSession("acme", "user@acme.com"));
+    mockReadOrgSlugHeader.mockResolvedValue("ghost");
+    mockGetOrgBySlug.mockResolvedValue(null); // host slug names no real org
+
+    await expect(resolveTenantOrgId()).resolves.toEqual({
+      orgId: "acme",
+      source: "session",
+    });
+    // Existence check ran, but we never looked up a user or membership for a
+    // non-existent org.
+    expect(mockGetOrgBySlug).toHaveBeenCalledWith("ghost");
+    expect(mockFindUserByEmail).not.toHaveBeenCalled();
+    expect(mockGetMembership).not.toHaveBeenCalled();
+  });
+
+  it("keeps the SESSION org when the session carries no email (no user id to check)", async () => {
+    mockAuth.mockResolvedValue(authedSession("acme", undefined));
+    mockReadOrgSlugHeader.mockResolvedValue("beta");
+    mockGetOrgBySlug.mockResolvedValue(orgRow("beta"));
+
+    await expect(resolveTenantOrgId()).resolves.toEqual({
+      orgId: "acme",
+      source: "session",
+    });
+    // No email → no user id → never even attempt a membership lookup.
+    expect(mockFindUserByEmail).not.toHaveBeenCalled();
+    expect(mockGetMembership).not.toHaveBeenCalled();
+  });
+
+  it("keeps the SESSION org when the email resolves to no user row", async () => {
+    mockAuth.mockResolvedValue(authedSession("acme", "ghost@nowhere.com"));
+    mockReadOrgSlugHeader.mockResolvedValue("beta");
+    mockGetOrgBySlug.mockResolvedValue(orgRow("beta"));
+    mockFindUserByEmail.mockResolvedValue(null); // no matching user
+
+    await expect(resolveTenantOrgId()).resolves.toEqual({
+      orgId: "acme",
+      source: "session",
+    });
+    expect(mockGetMembership).not.toHaveBeenCalled();
   });
 });
 

@@ -11,17 +11,31 @@
 // Sanjow constant; every caller already awaited a TenantContext and filtered
 // by it, so that change was exactly the one-file diff this seam was built for.
 //
-// RESOLUTION ORDER (requirement 5):
+// RESOLUTION ORDER (requirement 5, + Batch D-b's host-switch):
 //   1. The authenticated session's org (session.orgId, set by auth.ts's jwt
 //      callback at sign-in). Trusted at face value — no DB round-trip, which
 //      is the whole point of putting orgId on the session (see auth.ts's
 //      header comment on why re-validating it on every render would defeat
-//      that). Wins regardless of which host the request came in on.
-//   2. Otherwise, the subdomain — lib/subdomain.ts's pure host-parsing +
-//      lib/org.ts's DB-backed existence check (via the ORG_SLUG_HEADER
-//      middleware.ts set). This is the path an unauthenticated request takes
-//      (chiefly /signin and /register — see app/layout.tsx, which gates
-//      EVERY page on this same resolution and renders "unknown workspace"
+//      that). Wins over the subdomain in the common case, with ONE deliberate
+//      exception below.
+//   1b. HOST-SWITCH ("host wins for a member", Batch D-b, finding #2 option B):
+//      when there IS a session AND the Host names a REAL org that DIFFERS from
+//      the session's org AND the signed-in user is a MEMBER of that host org,
+//      this request resolves to the HOST org instead — a silent, per-request
+//      switch (the JWT is NOT re-minted; the session's own org is unchanged for
+//      the next request that lands back on its own host). If the user is NOT a
+//      member of the host org, the session org wins (step 1) exactly as before —
+//      we never resolve to an org the user has no membership in. The common
+//      cases stay on the zero-DB fast path: no session (step 2), no host org to
+//      compare, or a host that names the session's OWN org. The membership
+//      lookup happens ONLY on a genuine mismatch (session present AND a real,
+//      different host org) — the slug comparison that gates it is header-only
+//      (lib/org.ts's readOrgSlugHeader, no query), so step 1 pays nothing.
+//   2. Otherwise (no session), the subdomain — lib/subdomain.ts's pure
+//      host-parsing + lib/org.ts's DB-backed existence check (via the
+//      ORG_SLUG_HEADER middleware.ts set). This is the path an unauthenticated
+//      request takes (chiefly /signin and /register — see app/layout.tsx, which
+//      gates EVERY page on this same resolution and renders "unknown workspace"
 //      when it comes up empty, so by the time any page's own body runs,
 //      resolution already succeeded).
 //   3. Neither resolves → THROW. Never silently default to Sanjow — that's
@@ -40,8 +54,11 @@
 // of "next-auth" alone throws ERR_MODULE_NOT_FOUND there). That script
 // statically imports this file for its SANJOW_* constants only, never calls
 // the resolution functions — so as long as this file's OWN top-level imports
-// stay Next-free, the script keeps working unmodified. A static import here
-// would silently break `npm run migrate:tenancy` the next time it's run.
+// stay Next-free, the script keeps working unmodified. A static VALUE import
+// here would silently break `npm run migrate:tenancy` the next time it's run.
+// A type-only `import type` (see the `Session` import below) is exempt: Node's
+// `--experimental-strip-types` erases it entirely, so it never becomes a
+// runtime module resolution — verified against the migrate script's own flags.
 //
 // PER-TABLE SCOPE — decided when the tenancy columns were added
 // (scripts/migrate-tenancy.ts), documented once here rather than re-litigated
@@ -94,6 +111,11 @@
 // deserves its own focused batch that solves that properly, not a bolt-on.
 // ============================================================================
 
+// Type-only — erased at runtime (see the DYNAMIC IMPORTS note above on why a
+// VALUE import of next-auth here would break the migrate script, and why this
+// one is exempt). Used only to type the private session helpers below.
+import type { Session } from "next-auth";
+
 /** A resolved tenant: the org (billing/identity boundary) and the project
  *  within it (the unit an experiment/event/metric belongs to). */
 export interface TenantContext {
@@ -118,10 +140,14 @@ export const SANJOW_DEFAULT_PROJECT_NAME = "Sanjow (default)";
 
 /** How resolveTenantOrgId() determined the org — "session" needed no DB
  *  round-trip (trusted the JWT claim); "subdomain" did (lib/org.ts validated
- *  the candidate slug against the organization table). Exposed so
- *  app/layout.tsx / auth-facing pages can tell the two apart if useful for
- *  messaging, without re-deriving it themselves. */
-export type TenantResolutionSource = "session" | "subdomain";
+ *  the candidate slug against the organization table); "session-host-switch"
+ *  is the host-switch (step 1b): an authenticated user who is a member of the
+ *  DIFFERENT org the Host names was resolved to that host org instead of their
+ *  session's own org (this one DID cost a DB round-trip — the existence +
+ *  membership checks — but only because the request was a genuine mismatch).
+ *  Exposed so app/layout.tsx / auth-facing pages can tell them apart if useful
+ *  for messaging, without re-deriving it themselves. */
+export type TenantResolutionSource = "session" | "subdomain" | "session-host-switch";
 
 export interface TenantResolution {
   orgId: string;
@@ -143,16 +169,93 @@ export interface TenantResolution {
  */
 export async function resolveTenantOrgId(): Promise<TenantResolution | null> {
   // Dynamic import — see this file's header comment ("DYNAMIC IMPORTS,
-  // DELIBERATELY") for why this can't be a top-level `import`.
+  // DELIBERATELY") for why this can't be a top-level VALUE `import`.
   const { auth } = await import("@/auth");
   const session = await auth();
   if (session?.orgId) {
-    return { orgId: session.orgId, source: "session" };
+    return resolveForAuthenticatedSession(session, session.orgId);
   }
 
   const { resolveOrgFromRequestHeader } = await import("./org");
   const org = await resolveOrgFromRequestHeader();
   return org ? { orgId: org.id, source: "subdomain" } : null;
+}
+
+/**
+ * The authenticated branch of resolveTenantOrgId (step 1 + the step-1b
+ * host-switch). Factored out only for readability; `sessionOrgId` is the JWT's
+ * trusted org claim (session.orgId, already null-checked by the caller).
+ *
+ * FAST PATH — zero DB round-trips (requirement 5's whole point). Reading the
+ * middleware-set slug header is header-only (readOrgSlugHeader does NO query),
+ * and organization.id IS the slug (see lib/org.ts), so the candidate host slug
+ * compares directly against the trusted session org id. If the Host names no
+ * org at all, or names the SAME org the session already claims, we trust the JWT
+ * verbatim and touch neither lib/org.ts's DB nor lib/membership.ts. This is the
+ * common case for every authenticated request.
+ *
+ * HOST-SWITCH — only when the Host names a DIFFERENT slug than the session do we
+ * spend any I/O: an existence check on the host org, then (if real) a membership
+ * lookup. The signed-in user is switched INTO the host org only if they are a
+ * member of it; otherwise the session org wins. We never resolve to an org the
+ * user has no membership in, and we never re-mint the JWT (the switch is
+ * per-request only).
+ */
+async function resolveForAuthenticatedSession(
+  session: Session,
+  sessionOrgId: string,
+): Promise<TenantResolution> {
+  const { readOrgSlugHeader, getOrgBySlug } = await import("./org");
+
+  // Header-only read — NO DB round-trip. This is what keeps the same-org (and
+  // no-host-org) fast path free of a per-request query.
+  const hostSlug = await readOrgSlugHeader();
+  if (!hostSlug || hostSlug === sessionOrgId) {
+    // No host org to compare against, or the Host names the session's own org →
+    // trust the JWT claim with zero I/O.
+    return { orgId: sessionOrgId, source: "session" };
+  }
+
+  // The Host names a DIFFERENT slug than the session claims. Existence-check it
+  // first — a candidate slug off the header is not proof a real org exists.
+  const hostOrg = await getOrgBySlug(hostSlug);
+  if (!hostOrg) {
+    // The host slug isn't a real org → never switch to a phantom; session wins.
+    return { orgId: sessionOrgId, source: "session" };
+  }
+
+  // A real, different host org. Switch this request into it ONLY if the
+  // signed-in user is actually a member of it.
+  const userId = await resolveSessionUserId(session);
+  if (userId) {
+    const { getMembership } = await import("./membership");
+    const membership = await getMembership(userId, hostOrg.id);
+    if (membership) {
+      return { orgId: hostOrg.id, source: "session-host-switch" };
+    }
+  }
+
+  // Not a member (or no resolvable user id) → the session org wins, exactly as
+  // before the host-switch existed. Failing to the session org here is the
+  // safe default: we never resolve to an org the user has no membership in.
+  return { orgId: sessionOrgId, source: "session" };
+}
+
+/**
+ * The signed-in user's id, derived the same way lib/authz.ts does. The JWT
+ * session strategy exposes only `{ name, email, image }` on session.user, and
+ * auth.config.ts's session callback adds only orgId/role — NOT an id (verified:
+ * @auth/core builds the session's user object with no id field in JWT mode). So
+ * the only stable identifier on the session is the email; we look the id up by
+ * it. Returns null for a session with no email or no matching user row —
+ * callers treat that as "not a member" and fail closed to the session org.
+ */
+async function resolveSessionUserId(session: Session): Promise<string | null> {
+  const email = session.user?.email;
+  if (!email) return null;
+  const { findUserByEmail } = await import("./users");
+  const user = await findUserByEmail(email);
+  return user?.id ?? null;
 }
 
 /**
