@@ -42,8 +42,9 @@ export default async function RootLayout({
   // subdomains (see lib/tenant.ts's header comment).
   //
   // Resolves via lib/tenant.ts's resolveTenantOrgId(): an authenticated
-  // session's org always wins (renders children regardless of host — see
-  // that file's header comment on the resolution order), so this only ever
+  // session resolves to its own org, or to the host's org when the user is a
+  // member of it (the host-switch path — see that file's resolution order); a
+  // signed-in user always resolves to an org they belong to. So this only ever
   // actually shows UnknownWorkspace for an UNAUTHENTICATED request to a host
   // that doesn't resolve to a real org — chiefly /signin and /register on a
   // bad subdomain, since every gated route already requires a session via
