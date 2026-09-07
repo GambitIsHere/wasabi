@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DESCRIPTION_MAX,
+  evenSplit,
   slugify,
   splitTotal,
   validateInput,
@@ -279,5 +280,48 @@ describe("splitTotal", () => {
       { key: "b", rolloutPercentage: undefined as unknown as number, themeSlug: "y", isControl: false },
     ];
     expect(splitTotal(variants)).toBe(60);
+  });
+});
+
+describe("evenSplit", () => {
+  it("splits two arms exactly in half", () => {
+    expect(evenSplit(2)).toEqual([50, 50]);
+  });
+
+  it("puts the remainder on the leading arms (3 arms → 34/33/33)", () => {
+    expect(evenSplit(3)).toEqual([34, 33, 33]);
+  });
+
+  it("splits four arms evenly", () => {
+    expect(evenSplit(4)).toEqual([25, 25, 25, 25]);
+  });
+
+  it("always sums to exactly 100 — the value validateInput requires", () => {
+    for (let n = 1; n <= 12; n++) {
+      const split = evenSplit(n);
+      expect(split).toHaveLength(n);
+      expect(split.reduce((a, b) => a + b, 0)).toBe(100);
+    }
+  });
+
+  it("a single arm takes the whole 100", () => {
+    expect(evenSplit(1)).toEqual([100]);
+  });
+
+  it("returns [] for a non-positive or non-finite count", () => {
+    expect(evenSplit(0)).toEqual([]);
+    expect(evenSplit(-3)).toEqual([]);
+    expect(evenSplit(Number.NaN)).toEqual([]);
+  });
+
+  it("produces a split that passes validateInput end-to-end", () => {
+    const splits = evenSplit(3);
+    const variants: VariantInput[] = [
+      { key: "control", rolloutPercentage: splits[0]!, themeSlug: "tu_lov_uk", isControl: true },
+      { key: "b", rolloutPercentage: splits[1]!, themeSlug: "tu_lov_uk", isControl: false },
+      { key: "c", rolloutPercentage: splits[2]!, themeSlug: "tu_lov_uk", isControl: false },
+    ];
+    // A/A-style input (identical theme slugs, even split) — must validate.
+    expect(validateInput({ ...validInput(), variants }, ALLOWED_GOAL_METRICS)).toBeNull();
   });
 });

@@ -185,9 +185,15 @@ async function insertRaw(input: ExperimentInput): Promise<string> {
   const key = resolveKey(input);
   const createdAt = new Date().toISOString();
   const description = (input.description ?? "").trim();
+  // Launch state. A NEW test from the management form defaults to PAUSED
+  // (active:false) so it can be wired + A/A-checked before real traffic. An
+  // OMITTED active (input.active === undefined) stays active(1): that's the
+  // seed path (lib/seeds.ts inputs carry no `active`), which then flips the
+  // SEED_PAUSED keys off via setActiveRaw — so seeding behaviour is unchanged.
+  const active = input.active === false ? 0 : 1;
   await sql.transaction([
     sql`INSERT INTO experiment (key, name, business, active, goal_metric, start_date, created_at, description, project_id)
-        VALUES (${key}, ${input.name.trim()}, ${input.business}, 1, ${input.goalMetric}, ${input.startDate}, ${createdAt}, ${description}, ${projectId})`,
+        VALUES (${key}, ${input.name.trim()}, ${input.business}, ${active}, ${input.goalMetric}, ${input.startDate}, ${createdAt}, ${description}, ${projectId})`,
     ...variantInserts(sql, key, input.variants),
   ]);
   return key;

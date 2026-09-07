@@ -15,6 +15,7 @@ import {
   BUSINESSES,
   DESCRIPTION_MAX,
   THEME_SLUGS,
+  evenSplit,
   slugify,
   splitTotal,
   validateInput,
@@ -80,6 +81,19 @@ export function ExperimentForm({ mode, initial, goalMetricOptions }: Props) {
   const [description, setDescription] = useState(initial.description ?? "");
   const [drafts, setDrafts] = useState<VariantDraft[]>(toDrafts(initial.variants));
 
+  // CREATE-ONLY launch state. A new test defaults to PAUSED (queued) so it can
+  // be wired + A/A-checked before real traffic; this is threaded to the store as
+  // ExperimentInput.active (see candidate below). Edit never renders this — the
+  // active flag is owned there by ExperimentControls — so edit-mode persistence
+  // is unchanged.
+  const [active, setActive] = useState<boolean>(initial.active ?? false);
+
+  // CREATE-ONLY A/A preset: make every arm identical (same theme slug) with an
+  // even split, to validate assignment + goal capture before running a real A/B.
+  // Turning it off restores the theme slugs the arms had before it was enabled.
+  const [aaMode, setAaMode] = useState(false);
+  const aaPrevSlugs = useRef<string[] | null>(null);
+
   // The dropdown's real option list: the registry's isGoal metrics, plus the
   // experiment's OWN current goal metric if it isn't already one of them —
   // "show the raw key" for a legacy/orphaned value (e.g. a pre-registry
@@ -131,39 +145,91 @@ export function ExperimentForm({ mode, initial, goalMetricOptions }: Props) {
     goalMetric,
     startDate,
     description,
+    // Launch state is a create-time initial value only. On edit it's left
+    // undefined so the update path never touches the active flag (owned by
+    // ExperimentControls) — see ExperimentInput.active.
+    active: mode === "create" ? active : undefined,
     variants,
   };
   const validationError = validateInput(candidate, allowedGoalKeys);
   const canSubmit = validationError === null && !pending;
 
   // --- variant row mutators ---
+  /** The arm whose theme every arm mirrors while A/A mode is on (the control,
+   *  or the first row as a fallback). */
+  function sharedSlug(rows: VariantDraft[]): string {
+    return (rows.find((r) => r.isControl) ?? rows[0])?.themeSlug ?? THEME_SLUGS[0];
+  }
+  /** Even-split the rollout column across `rows`, summing to exactly 100. */
+  function withEvenSplit(rows: VariantDraft[]): VariantDraft[] {
+    const splits = evenSplit(rows.length);
+    return rows.map((r, i) => ({ ...r, rollout: String(splits[i] ?? 0) }));
+  }
+
   function updateRow(i: number, patch: Partial<VariantDraft>) {
     setDrafts((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+  /** Theme edits. In A/A mode every arm is kept identical, so a change to the
+   *  (editable) control arm propagates to all rows; otherwise only row `i`. */
+  function setTheme(i: number, value: string) {
+    setDrafts((rows) =>
+      aaMode
+        ? rows.map((r) => ({ ...r, themeSlug: value }))
+        : rows.map((r, idx) => (idx === i ? { ...r, themeSlug: value } : r)),
+    );
   }
   function setControl(i: number) {
     setDrafts((rows) => rows.map((r, idx) => ({ ...r, isControl: idx === i })));
   }
+  /** Distribute 100% across the current arms as evenly as possible. */
+  function splitEvenly() {
+    setDrafts((rows) => withEvenSplit(rows));
+  }
   function addRow() {
     pendingFocus.current = "add";
-    setDrafts((rows) => [
-      ...rows,
-      {
-        key: `variant_${rows.length + 1}`,
-        rollout: "0",
-        themeSlug: THEME_SLUGS[0],
-        isControl: false,
-      },
-    ]);
+    setDrafts((rows) => {
+      const next = [
+        ...rows,
+        {
+          key: `variant_${rows.length + 1}`,
+          rollout: "0",
+          themeSlug: aaMode ? sharedSlug(rows) : THEME_SLUGS[0],
+          isControl: false,
+        },
+      ];
+      // A/A must stay identical + even after the arm count changes.
+      return aaMode ? withEvenSplit(next) : next;
+    });
   }
   function removeRow(i: number) {
     if (drafts.length > 2) pendingFocus.current = "remove";
     setDrafts((rows) => {
       if (rows.length <= 2) return rows; // keep the ≥2 invariant
-      const next = rows.filter((_, idx) => idx !== i);
-      // If we removed the control, promote the first remaining row.
-      if (!next.some((r) => r.isControl) && next[0]) next[0].isControl = true;
-      return [...next];
+      let next = rows.filter((_, idx) => idx !== i);
+      // If we removed the control, promote the first remaining row (immutably).
+      if (!next.some((r) => r.isControl) && next[0]) {
+        next = next.map((r, idx) => (idx === 0 ? { ...r, isControl: true } : r));
+      }
+      // A/A must stay even after the arm count changes.
+      return aaMode ? withEvenSplit(next) : next;
     });
+  }
+  /** Toggle the A/A preset. Enabling snapshots the current theme slugs, then
+   *  makes every arm identical (all = the control's slug) with an even split.
+   *  Disabling restores the snapshotted slugs by position where they still
+   *  exist, leaving splits/keys as-is (non-destructive). */
+  function toggleAaMode() {
+    setDrafts((rows) => {
+      if (!aaMode) {
+        aaPrevSlugs.current = rows.map((r) => r.themeSlug);
+        const shared = sharedSlug(rows);
+        return withEvenSplit(rows.map((r) => ({ ...r, themeSlug: shared })));
+      }
+      const snapshot = aaPrevSlugs.current;
+      aaPrevSlugs.current = null;
+      return rows.map((r, i) => ({ ...r, themeSlug: snapshot?.[i] ?? r.themeSlug }));
+    });
+    setAaMode((on) => !on);
   }
 
   function onSubmit(e: React.FormEvent) {
@@ -256,6 +322,10 @@ export function ExperimentForm({ mode, initial, goalMetricOptions }: Props) {
                 </option>
               ))}
             </select>
+            <span className="text-[11px] text-faint">
+              The goal event must be captured from the storefront, or the test
+              measures nothing.
+            </span>
           </label>
 
           <label className="flex flex-col gap-1.5">
@@ -272,15 +342,51 @@ export function ExperimentForm({ mode, initial, goalMetricOptions }: Props) {
 
       {/* --- Variants editor --- */}
       <section className="rounded-xl border border-line bg-surface">
-        <header className="flex items-center justify-between border-b border-line px-5 py-3">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
           <div>
             <h2 className="font-display text-sm font-semibold text-fg">Variants</h2>
             <p className="mt-0.5 text-xs text-faint">
               Pick exactly one control. Splits must sum to 100%.
             </p>
           </div>
-          <SplitBadge total={total} ok={totalOk} />
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={splitEvenly}
+              className="rounded-lg border border-line-strong bg-bg px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:border-accent/40 hover:text-accent"
+            >
+              Split evenly
+            </button>
+            <SplitBadge total={total} ok={totalOk} />
+          </div>
         </header>
+
+        {/* A/A preset — CREATE ONLY. Makes every arm identical to validate the
+            plumbing before running a real A/B. */}
+        {mode === "create" && (
+          <div className="border-b border-line bg-bg/40 px-5 py-3">
+            <label className="flex items-start gap-2.5">
+              <input
+                type="checkbox"
+                checked={aaMode}
+                onChange={toggleAaMode}
+                className="mt-0.5 size-3.5 accent-[var(--color-info)]"
+              />
+              <span className="space-y-0.5">
+                <span className="block text-xs font-medium text-fg">
+                  Set up as an A/A test — identical arms, to validate tracking
+                </span>
+                {aaMode && (
+                  <span className="block text-[11px] text-faint">
+                    All arms now route to the same theme with an even split. An
+                    A/A confirms assignment works and the goal event fires before
+                    you run a real A/B.
+                  </span>
+                )}
+              </span>
+            </label>
+          </div>
+        )}
 
         <div ref={rowsRef} className="divide-y divide-line">
           {drafts.map((d, i) => (
@@ -333,18 +439,28 @@ export function ExperimentForm({ mode, initial, goalMetricOptions }: Props) {
 
               {/* theme slug — free text (any global-api Theme slug works across
                   all businesses); the common ones are suggested via the datalist
-                  below. Validation is format-based (see mgmt.ts THEME_SLUG_RE). */}
+                  below. Validation is format-based (see mgmt.ts THEME_SLUG_RE).
+                  In A/A mode every arm mirrors the control's slug, so only the
+                  control's field is editable and the rest are shown read-only. */}
               <input
                 type="text"
                 list="wasabi-theme-slugs"
                 value={d.themeSlug}
-                onChange={(e) => updateRow(i, { themeSlug: e.target.value })}
+                onChange={(e) => setTheme(i, e.target.value)}
+                readOnly={aaMode && !d.isControl}
                 placeholder="tu_lov_uk_19"
                 spellCheck={false}
                 autoComplete="off"
                 autoCapitalize="none"
                 autoCorrect="off"
-                className="w-full rounded-md border border-line-strong bg-bg px-2.5 py-1.5 font-mono text-xs text-accent/90 placeholder:text-faint focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
+                title={
+                  aaMode && !d.isControl
+                    ? "A/A mode — mirrors the control arm's theme"
+                    : undefined
+                }
+                className={`w-full rounded-md border border-line-strong bg-bg px-2.5 py-1.5 font-mono text-xs text-accent/90 placeholder:text-faint focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40 ${
+                  aaMode && !d.isControl ? "cursor-not-allowed opacity-60" : ""
+                }`}
                 aria-label={`Theme slug for variant ${d.key}`}
               />
 
@@ -386,6 +502,36 @@ export function ExperimentForm({ mode, initial, goalMetricOptions }: Props) {
           </button>
         </div>
       </section>
+
+      {/* --- Launch state (CREATE ONLY) --- */}
+      {mode === "create" && (
+        <section className="rounded-xl border border-line bg-surface p-5">
+          <h2 className="font-display text-sm font-semibold text-fg">Launch</h2>
+          <p className="mt-0.5 text-xs text-faint">
+            A new test starts paused so you can wire the storefront and run an A/A
+            check before it takes real traffic. Activate it from the experiment
+            page when it&apos;s ready.
+          </p>
+          <div
+            role="radiogroup"
+            aria-label="Initial launch state"
+            className="mt-4 grid gap-2 sm:grid-cols-2"
+          >
+            <LaunchOption
+              selected={!active}
+              onSelect={() => setActive(false)}
+              title="Start paused"
+              subtitle="Queued — no traffic until you activate it"
+            />
+            <LaunchOption
+              selected={active}
+              onSelect={() => setActive(true)}
+              title="Start active"
+              subtitle="Live immediately — assigns traffic on save"
+            />
+          </div>
+        </section>
+      )}
 
       {/* --- Errors + submit --- */}
       <div className="space-y-3">
@@ -430,6 +576,38 @@ export function ExperimentForm({ mode, initial, goalMetricOptions }: Props) {
         </div>
       </div>
     </form>
+  );
+}
+
+/** One selectable launch-state card (radio semantics) for create mode. */
+function LaunchOption({
+  selected,
+  onSelect,
+  title,
+  subtitle,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+      className={`flex flex-col items-start gap-0.5 rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
+        selected
+          ? "border-accent/50 bg-accent/10"
+          : "border-line-strong bg-bg hover:border-accent/30"
+      }`}
+    >
+      <span className={`text-sm font-medium ${selected ? "text-fg" : "text-muted"}`}>
+        {title}
+      </span>
+      <span className="text-[11px] text-faint">{subtitle}</span>
+    </button>
   );
 }
 

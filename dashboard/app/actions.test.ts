@@ -115,3 +115,27 @@ describe("createExperiment — cross-tenant key collision (M2)", () => {
     expect(mockInsertExperiment).not.toHaveBeenCalled();
   });
 });
+
+describe("createExperiment — launch state (active) is threaded to the store", () => {
+  beforeEach(() => {
+    mockExperimentExists.mockResolvedValue(false);
+    mockInsertExperiment.mockResolvedValue("tu-billing-uk-test");
+  });
+
+  it("forwards active:false (a paused/queued create) to insertExperiment", async () => {
+    const result = await createExperiment(validInput({ active: false }));
+
+    expect(result).toEqual({ ok: true, key: "tu-billing-uk-test" });
+    expect(mockInsertExperiment).toHaveBeenCalledWith(
+      expect.objectContaining({ active: false }),
+    );
+  });
+
+  it("forwards active:true (a create that launches live) to insertExperiment", async () => {
+    await createExperiment(validInput({ active: true }));
+
+    expect(mockInsertExperiment).toHaveBeenCalledWith(
+      expect.objectContaining({ active: true }),
+    );
+  });
+});

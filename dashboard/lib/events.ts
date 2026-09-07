@@ -244,3 +244,97 @@ export async function assignmentCountsTodayByExperiment(): Promise<
   for (const r of rows) out[r.key] = r.count;
   return out;
 }
+
+/** Counts for one arm (or the whole experiment): assignments vs goal captures,
+ *  today (UTC) and all-time-in-window (the event table is pruned to 7 days). */
+export interface WiringCounts {
+  assignmentsToday: number;
+  assignmentsTotal: number;
+  capturesToday: number;
+  capturesTotal: number;
+}
+
+/** One experiment's wiring health: whole-experiment totals plus a per-arm
+ *  breakdown keyed by variant. `byArm` only holds arms that have events; the
+ *  caller pairs it against the experiment's declared arms so zero-traffic arms
+ *  still render. */
+export interface ExperimentWiring extends WiringCounts {
+  byArm: Record<string, WiringCounts>;
+}
+
+const ZERO_COUNTS: WiringCounts = {
+  assignmentsToday: 0,
+  assignmentsTotal: 0,
+  capturesToday: 0,
+  capturesTotal: 0,
+};
+
+/** An empty wiring result — the honest state for an experiment with no events
+ *  yet (and the safe fallback a caller can use if the read is skipped). */
+export const EMPTY_WIRING: ExperimentWiring = { ...ZERO_COUNTS, byArm: {} };
+
+/** One grouped-events row (variant × kind) as returned by the wiring query. */
+export interface WiringEventGroup {
+  variant: string | null;
+  kind: string;
+  total: number;
+  today: number;
+}
+
+/**
+ * Fold grouped (variant × kind) event counts into an ExperimentWiring. PURE —
+ * no I/O — so the aggregation (assignment vs capture split, per-arm breakdown,
+ * NULL-variant handling) is unit-testable without a DB. `kind` is 'assignment'
+ * for bucketing pings and 'conversion' for every other capture (goal fires) —
+ * see the capture route's classify(). A NULL variant (a capture with no arm
+ * attribution) still counts toward the experiment totals but is dropped from
+ * `byArm` (it can't be attributed to a row).
+ */
+export function foldWiringRows(rows: readonly WiringEventGroup[]): ExperimentWiring {
+  const result: ExperimentWiring = { ...ZERO_COUNTS, byArm: {} };
+  for (const r of rows) {
+    const total = Number(r.total) || 0;
+    const today = Number(r.today) || 0;
+    const isAssignment = r.kind === "assignment";
+    if (isAssignment) {
+      result.assignmentsTotal += total;
+      result.assignmentsToday += today;
+    } else {
+      result.capturesTotal += total;
+      result.capturesToday += today;
+    }
+    if (r.variant === null) continue;
+    const arm = (result.byArm[r.variant] ??= { ...ZERO_COUNTS });
+    if (isAssignment) {
+      arm.assignmentsTotal += total;
+      arm.assignmentsToday += today;
+    } else {
+      arm.capturesTotal += total;
+      arm.capturesToday += today;
+    }
+  }
+  return result;
+}
+
+/**
+ * Wiring health for ONE experiment: is it receiving assignments, and is the goal
+ * event being captured — today and total — overall and per arm. Read entirely
+ * from the local `event` store (assignment side); it never touches Metabase, so
+ * it works locally and returns EMPTY_WIRING (not an error) for an experiment
+ * that has no events yet.
+ */
+export async function experimentWiring(key: string): Promise<ExperimentWiring> {
+  await createSchema();
+  const sql = getSql();
+  const projectId = await getCurrentProjectId();
+  const since = startOfTodayIso();
+  const rows = (await sql`
+    SELECT variant, kind,
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE ts >= ${since})::int AS today
+    FROM event
+    WHERE experiment_key = ${key} AND project_id = ${projectId}
+    GROUP BY variant, kind
+  `) as unknown as WiringEventGroup[];
+  return foldWiringRows(rows);
+}

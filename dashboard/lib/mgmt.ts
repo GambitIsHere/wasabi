@@ -30,6 +30,14 @@ export interface ExperimentInput {
   startDate: string;
   /** Optional 1-2 sentence rationale shown on the card and detail page. */
   description?: string;
+  /**
+   * Initial launch state — CREATE ONLY. `false` = start paused/queued (the
+   * management-UI default, so a test can be wired + A/A-checked before it takes
+   * real traffic); `true` = start active. Omitted on edit: the active flag is
+   * owned there by ExperimentControls, and the update path never reads this.
+   * The store treats `undefined` as active (1) so seeding stays unchanged.
+   */
+  active?: boolean;
   variants: VariantInput[];
 }
 
@@ -135,6 +143,21 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** Sum of variant splits, tolerant of tiny float noise. */
 export function splitTotal(variants: readonly VariantInput[]): number {
   return variants.reduce((sum, v) => sum + (Number(v.rolloutPercentage) || 0), 0);
+}
+
+/**
+ * Even 0-100 split across `count` arms, as whole numbers that sum to EXACTLY
+ * 100 (validateInput requires the exact 100 — never 99 or 101). The remainder
+ * from the integer division is spread one point at a time onto the leading arms,
+ * so 3 arms → [34, 33, 33] and 7 arms → [15, 15, 15, 14, 14, 14, 14]. Returns
+ * [] for count ≤ 0. Used by the form's "Split evenly" button and the A/A preset.
+ */
+export function evenSplit(count: number): number[] {
+  if (!Number.isFinite(count) || count <= 0) return [];
+  const n = Math.floor(count);
+  const base = Math.floor(100 / n);
+  const remainder = 100 - base * n;
+  return Array.from({ length: n }, (_, i) => base + (i < remainder ? 1 : 0));
 }
 
 /**

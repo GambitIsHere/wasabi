@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getExperiment } from "@/lib/experiments";
+import { experimentWiring, EMPTY_WIRING, type ExperimentWiring } from "@/lib/events";
 import { StatusPill, ControlBadge } from "@/components/pills";
 import { AssignmentTester } from "@/components/AssignmentTester";
+import { ExperimentHealth } from "@/components/ExperimentHealth";
 import { LiveResults } from "@/components/LiveResults";
 import { ExperimentControls } from "@/components/ExperimentControls";
 
@@ -20,6 +22,16 @@ export default async function ExperimentDetailPage({
   if (!experiment) notFound();
 
   const variants = experiment.flag.variants ?? [];
+
+  // Wiring health reads the local event store only (no Metabase). Guard it so a
+  // DB hiccup — or no DATABASE_URL locally — degrades to the empty state rather
+  // than taking down the whole detail page.
+  let wiring: ExperimentWiring = EMPTY_WIRING;
+  try {
+    wiring = await experimentWiring(experiment.flag.key);
+  } catch {
+    wiring = EMPTY_WIRING;
+  }
 
   return (
     <div className="space-y-8">
@@ -132,13 +144,20 @@ export default async function ExperimentDetailPage({
         </div>
       </section>
 
-      {/* 3. Assignment tester (client) */}
+      {/* 3. Wiring / health — is it receiving assignments + goal captures yet? */}
+      <ExperimentHealth
+        wiring={wiring}
+        variants={variants}
+        controlVariant={experiment.controlVariant}
+      />
+
+      {/* 4. Assignment tester (client) */}
       <AssignmentTester
         experimentKey={experiment.flag.key}
         sampleId="user_42"
       />
 
-      {/* 4. Live results + verdict (client, with loading/empty/error states) */}
+      {/* 5. Live results + verdict (client, with loading/empty/error states) */}
       <section className="space-y-4">
         <div>
           <h2 className="font-display text-lg font-semibold tracking-tight text-fg">

@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { startOfTodayIso } from "@/lib/events";
+import { foldWiringRows, startOfTodayIso, type WiringEventGroup } from "@/lib/events";
 
 const SOURCE = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "events.ts"),
@@ -30,6 +30,66 @@ describe("startOfTodayIso", () => {
 
   it("matches today's own UTC date", () => {
     expect(startOfTodayIso().slice(0, 10)).toBe(new Date().toISOString().slice(0, 10));
+  });
+});
+
+describe("foldWiringRows — aggregating grouped event counts into wiring health", () => {
+  it("returns the empty shape for no rows", () => {
+    expect(foldWiringRows([])).toEqual({
+      assignmentsToday: 0,
+      assignmentsTotal: 0,
+      capturesToday: 0,
+      capturesTotal: 0,
+      byArm: {},
+    });
+  });
+
+  it("splits assignment vs conversion into the right totals, overall and per arm", () => {
+    const rows: WiringEventGroup[] = [
+      { variant: "control", kind: "assignment", total: 100, today: 10 },
+      { variant: "control", kind: "conversion", total: 8, today: 1 },
+      { variant: "variant_19", kind: "assignment", total: 90, today: 12 },
+      { variant: "variant_19", kind: "conversion", total: 15, today: 3 },
+    ];
+    const w = foldWiringRows(rows);
+    expect(w.assignmentsTotal).toBe(190);
+    expect(w.assignmentsToday).toBe(22);
+    expect(w.capturesTotal).toBe(23);
+    expect(w.capturesToday).toBe(4);
+    expect(w.byArm.control).toEqual({
+      assignmentsToday: 10,
+      assignmentsTotal: 100,
+      capturesToday: 1,
+      capturesTotal: 8,
+    });
+    expect(w.byArm.variant_19).toEqual({
+      assignmentsToday: 12,
+      assignmentsTotal: 90,
+      capturesToday: 3,
+      capturesTotal: 15,
+    });
+  });
+
+  it("counts a NULL-variant capture in the experiment totals but drops it from byArm", () => {
+    const rows: WiringEventGroup[] = [
+      { variant: "control", kind: "assignment", total: 5, today: 5 },
+      { variant: null, kind: "conversion", total: 4, today: 2 },
+    ];
+    const w = foldWiringRows(rows);
+    expect(w.capturesTotal).toBe(4);
+    expect(w.capturesToday).toBe(2);
+    expect(Object.keys(w.byArm)).toEqual(["control"]);
+  });
+
+  it("treats any non-'assignment' kind as a capture", () => {
+    const rows: WiringEventGroup[] = [
+      { variant: "a", kind: "conversion", total: 3, today: 3 },
+      { variant: "a", kind: "purchase", total: 2, today: 1 },
+    ];
+    const w = foldWiringRows(rows);
+    expect(w.assignmentsTotal).toBe(0);
+    expect(w.capturesTotal).toBe(5);
+    expect(w.byArm.a?.capturesTotal).toBe(5);
   });
 });
 
