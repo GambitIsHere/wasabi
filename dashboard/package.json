@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "reseed": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-hook-register.mjs scripts/reseed.ts",
     "migrate:tenancy": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-hook-register.mjs scripts/migrate-tenancy.ts",
-    "migrate:youtrack-ticket": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-hook-register.mjs scripts/migrate-youtrack-ticket.ts"
+    "migrate:youtrack-ticket": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-hook-register.mjs scripts/migrate-youtrack-ticket.ts",
+    "create:gp-603": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-hook-register.mjs scripts/create-gp-603.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
