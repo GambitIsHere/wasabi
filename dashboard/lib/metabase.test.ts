@@ -160,6 +160,7 @@ function fakeExperiment(overrides: Partial<RegisteredExperiment> = {}): Register
     themeMap: { control: "tu_lov_uk" },
     controlVariant: "control",
     startDate: "2026-09-01",
+    youtrackTicket: "",
     resultsThemeMap: [{ variant: "control", themeSlug: "tu_lov_uk" }],
     ...overrides,
   };

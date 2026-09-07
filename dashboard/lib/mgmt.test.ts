@@ -10,10 +10,16 @@
 import { describe, expect, it } from "vitest";
 import {
   DESCRIPTION_MAX,
+  businessCode,
+  composeExperimentName,
   evenSplit,
+  isValidYoutrackTicket,
+  keyFromIdOrName,
+  nextExpId,
   slugify,
   splitTotal,
   validateInput,
+  youtrackTicketHref,
   type ExperimentInput,
   type VariantInput,
 } from "@/lib/mgmt";
@@ -323,5 +329,159 @@ describe("evenSplit", () => {
     ];
     // A/A-style input (identical theme slugs, even split) — must validate.
     expect(validateInput({ ...validInput(), variants }, ALLOWED_GOAL_METRICS)).toBeNull();
+  });
+});
+
+describe("composeExperimentName — the 4-part name schema", () => {
+  it("joins all four parts in ID | business | what | page order, pipe-separated", () => {
+    expect(
+      composeExperimentName({
+        uniqueId: "EXP001",
+        business: "TU",
+        what: "Reassurance Banner",
+        page: "/recharge ads-flow",
+      }),
+    ).toBe("EXP001 | TU | Reassurance Banner | /recharge ads-flow");
+  });
+
+  it("skips blank / whitespace-only / missing parts rather than leaving empty segments", () => {
+    expect(
+      composeExperimentName({ uniqueId: "EXP001", business: "TU", what: "   ", page: "" }),
+    ).toBe("EXP001 | TU");
+    expect(composeExperimentName({ business: "PDF" })).toBe("PDF");
+    expect(composeExperimentName({})).toBe("");
+  });
+
+  it("trims each part", () => {
+    expect(composeExperimentName({ uniqueId: "  EXP002  ", what: "  copy test  " })).toBe(
+      "EXP002 | copy test",
+    );
+  });
+});
+
+describe("keyFromIdOrName — key derives from the Unique ID, not the whole name", () => {
+  it("slugs the Unique ID when present (short, stable key)", () => {
+    expect(keyFromIdOrName("EXP001", "EXP001 | TU | £19 vs £39 | landing")).toBe("exp001");
+  });
+
+  it("falls back to slugging the name when there is no ID", () => {
+    expect(keyFromIdOrName("", "Top Up Billing UK")).toBe("top-up-billing-uk");
+    expect(keyFromIdOrName("   ", "Top Up Billing UK")).toBe("top-up-billing-uk");
+  });
+
+  it("falls back to the name when the ID has no sluggable characters", () => {
+    expect(keyFromIdOrName("###", "Top Up Test")).toBe("top-up-test");
+  });
+
+  it("returns '' only when both ID and name are empty (validateInput then fails on name)", () => {
+    expect(keyFromIdOrName("", "")).toBe("");
+  });
+
+  it("produces a key that passes validateInput's key rule", () => {
+    const key = keyFromIdOrName("EXP001", "irrelevant");
+    expect(validate(validInput({ key, name: "EXP001 | TU | x | y" }))).toBeNull();
+  });
+});
+
+describe("businessCode — the short uppercase code for the name's business segment", () => {
+  it("maps each known label to its YouTrack-aligned code", () => {
+    expect(businessCode("Top Up")).toBe("TU");
+    expect(businessCode("PDF SaaS")).toBe("PDF");
+    expect(businessCode("Airport Check-In")).toBe("AC");
+    expect(businessCode("Airport Security")).toBe("AS");
+    expect(businessCode("Global Tickets")).toBe("GT");
+    expect(businessCode("Gift Cards")).toBe("GC");
+    expect(businessCode("Airport Lounges")).toBe("AL");
+    expect(businessCode("Global Visa")).toBe("GV");
+  });
+
+  it("falls back to the raw value for an unknown / stale business", () => {
+    expect(businessCode("Not A Business")).toBe("Not A Business");
+  });
+});
+
+describe("nextExpId — a single running EXP counter across all experiments", () => {
+  it("floors at EXP001 when nothing matches", () => {
+    expect(nextExpId([])).toBe("EXP001");
+    expect(nextExpId(["tu-billing-uk", "TU — Billing UK"])).toBe("EXP001");
+  });
+
+  it("returns max+1, zero-padded to three digits, scanning keys AND names", () => {
+    expect(nextExpId(["exp001", "EXP002 | TU | x | y"])).toBe("EXP003");
+    expect(nextExpId(["EXP009"])).toBe("EXP010");
+    expect(nextExpId(["EXP099"])).toBe("EXP100");
+  });
+
+  it("is case-insensitive and ignores non-matching strings", () => {
+    expect(nextExpId(["random", "exp007", "another"])).toBe("EXP008");
+  });
+
+  it("keeps counting past three digits without truncating", () => {
+    expect(nextExpId(["EXP999"])).toBe("EXP1000");
+  });
+});
+
+describe("isValidYoutrackTicket — bare ID or full URL", () => {
+  it("accepts a bare issue ID", () => {
+    expect(isValidYoutrackTicket("GP-603")).toBe(true);
+    expect(isValidYoutrackTicket("GAPI-12")).toBe(true);
+  });
+
+  it("accepts a full http(s) URL", () => {
+    expect(isValidYoutrackTicket("https://sanjow.youtrack.cloud/issue/GP-603")).toBe(true);
+    expect(isValidYoutrackTicket("http://example.com/issue/GP-1")).toBe(true);
+  });
+
+  it("rejects a lower-case id, a bare number, or free text", () => {
+    expect(isValidYoutrackTicket("gp-603")).toBe(false);
+    expect(isValidYoutrackTicket("603")).toBe(false);
+    expect(isValidYoutrackTicket("just some words")).toBe(false);
+  });
+});
+
+describe("youtrackTicketHref — the detail-page link target", () => {
+  const base = "https://sanjow.youtrack.cloud";
+
+  it("resolves a bare ID against the base URL", () => {
+    expect(youtrackTicketHref("GP-603", base)).toBe(
+      "https://sanjow.youtrack.cloud/issue/GP-603",
+    );
+  });
+
+  it("uses a full URL as-is", () => {
+    const url = "https://other.youtrack.cloud/issue/AB-1";
+    expect(youtrackTicketHref(url, base)).toBe(url);
+  });
+
+  it("tolerates a trailing slash on the base and trims the ticket", () => {
+    expect(youtrackTicketHref("  GP-7  ", "https://sanjow.youtrack.cloud/")).toBe(
+      "https://sanjow.youtrack.cloud/issue/GP-7",
+    );
+  });
+
+  it("returns null for a blank ticket (link omitted)", () => {
+    expect(youtrackTicketHref("", base)).toBeNull();
+    expect(youtrackTicketHref("   ", base)).toBeNull();
+  });
+});
+
+describe("validateInput — YouTrack ticket (optional, format-checked)", () => {
+  it("accepts an omitted or blank ticket", () => {
+    expect(validate(validInput())).toBeNull();
+    expect(validate(validInput({ youtrackTicket: "" }))).toBeNull();
+    expect(validate(validInput({ youtrackTicket: "   " }))).toBeNull();
+  });
+
+  it("accepts a bare ID or a full URL", () => {
+    expect(validate(validInput({ youtrackTicket: "GP-603" }))).toBeNull();
+    expect(
+      validate(validInput({ youtrackTicket: "https://sanjow.youtrack.cloud/issue/GP-603" })),
+    ).toBeNull();
+  });
+
+  it("rejects a malformed ticket", () => {
+    expect(validate(validInput({ youtrackTicket: "not a ticket" }))).toBe(
+      "YouTrack ticket must be an issue ID like GP-603, or a full ticket URL.",
+    );
   });
 });

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getExperiment } from "@/lib/experiments";
+import { youtrackTicketHref } from "@/lib/mgmt";
 import { experimentWiring, EMPTY_WIRING, type ExperimentWiring } from "@/lib/events";
 import { StatusPill, ControlBadge } from "@/components/pills";
 import { AssignmentTester } from "@/components/AssignmentTester";
@@ -22,6 +23,11 @@ export default async function ExperimentDetailPage({
   if (!experiment) notFound();
 
   const variants = experiment.flag.variants ?? [];
+
+  // YouTrack ticket link — a bare ID resolves against YOUTRACK_BASE_URL, a full
+  // URL is used as-is; null (no ticket) hides the link (degrade gracefully).
+  const ytBase = process.env.YOUTRACK_BASE_URL || "https://sanjow.youtrack.cloud";
+  const ticketHref = youtrackTicketHref(experiment.youtrackTicket, ytBase);
 
   // Wiring health reads the local event store only (no Metabase). Guard it so a
   // DB hiccup — or no DATABASE_URL locally — degrades to the empty state rather
@@ -86,6 +92,20 @@ export default async function ExperimentDetailPage({
               {experiment.controlVariant}
             </code>
           </span>
+          {ticketHref && (
+            <>
+              <span>·</span>
+              <a
+                href={ticketHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 font-mono text-info transition-colors hover:text-accent"
+                title="Open the YouTrack ticket"
+              >
+                Ticket <span aria-hidden="true">↗</span>
+              </a>
+            </>
+          )}
         </div>
         {experiment.description && (
           <p className="max-w-3xl text-sm leading-relaxed text-muted">

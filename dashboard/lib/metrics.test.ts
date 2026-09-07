@@ -20,7 +20,22 @@ import {
   type MetricDef,
   type MetricInput,
 } from "@/lib/metrics";
+import { SEED_METRICS } from "@/lib/seeds";
 import type { VariantRow } from "@/lib/verdict";
+
+/** Adapt a seed MetricInput to a MetricDef so metricValue can resolve it. */
+function seedToDef(input: MetricInput): MetricDef {
+  return metricDef({
+    key: input.key,
+    kind: input.kind,
+    direction: input.direction,
+    unit: input.unit,
+    numeratorField: (input.numeratorField ?? null) as MetricDef["numeratorField"],
+    denominatorField: input.denominatorField ?? null,
+    valueField: (input.valueField ?? null) as MetricDef["valueField"],
+    decimals: input.decimals ?? 1,
+  });
+}
 
 /** Minimal valid row — tests override only the fields they care about. */
 function row(overrides: Partial<VariantRow> = {}): VariantRow {
@@ -382,5 +397,38 @@ describe("validateMetricDef — failure modes", () => {
       validMetricInput({ kind: "sum", unit: "count", numeratorField: undefined, denominatorField: undefined, valueField: "nope" }),
     );
     expect(msg).toMatch(/^Value field must be one of:/);
+  });
+});
+
+// ============================================================================
+// SEED_METRICS — every seeded registry metric must be shape-valid, and each of
+// the two new ads-funnel goal metrics must actually RESOLVE a value off a
+// VariantRow (the honesty guarantee: a goal metric with no real field behind it
+// would compute null for every arm and silently measure nothing).
+// ============================================================================
+describe("SEED_METRICS — shape + real-data backing", () => {
+  it("every seeded metric passes validateMetricDef", () => {
+    for (const seed of SEED_METRICS) {
+      expect(validateMetricDef(seed), `seed "${seed.key}"`).toBeNull();
+    }
+  });
+
+  it("Conversions (sum) reads adConversions directly", () => {
+    const def = SEED_METRICS.find((m) => m.key === "conversions")!;
+    expect(def.isGoal).toBe(true);
+    const mv = metricValue(seedToDef(def), row({ adConversions: 42 }));
+    expect(mv).toBe(42);
+  });
+
+  it("Conversion rate (ratio) = adConversions / adClicks, percent-scaled", () => {
+    const def = SEED_METRICS.find((m) => m.key === "conversion_rate")!;
+    expect(def.isGoal).toBe(true);
+    const mv = metricValue(seedToDef(def), row({ adConversions: 3, adClicks: 12 }));
+    expect(mv).toBeCloseTo(25, 5); // 3/12 = 25%
+  });
+
+  it("Conversion rate is null (not a fake 0) when there are no ad clicks", () => {
+    const def = SEED_METRICS.find((m) => m.key === "conversion_rate")!;
+    expect(metricValue(seedToDef(def), row({ adConversions: 0, adClicks: 0 }))).toBeNull();
   });
 });

@@ -17,7 +17,7 @@ export default async function EditExperimentPage({
   if (!exp) notFound();
   const goalMetricOptions: GoalMetricOption[] = metrics
     .filter((m) => m.isGoal)
-    .map((m) => ({ key: m.key, label: m.label }));
+    .map((m) => ({ key: m.key, label: m.label, description: m.description }));
 
   // StoredExperiment → ExperimentInput (the form's shape). Key is carried so the
   // form can show it immutable and the action can lock identity.
@@ -28,6 +28,7 @@ export default async function EditExperimentPage({
     goalMetric: exp.goalMetric,
     startDate: exp.startDate,
     description: exp.description,
+    youtrackTicket: exp.youtrackTicket,
     variants: exp.variants,
   };
 
