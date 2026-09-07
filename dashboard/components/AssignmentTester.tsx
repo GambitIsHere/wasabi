@@ -4,6 +4,7 @@
 // Enter a distinctId, POST /api/decide, and show which variant + theme slug
 // that user gets for THIS experiment. Same id always yields the same arm.
 import { useState } from "react";
+import { Spinner } from "@/components/Spinner";
 
 interface DecideResponse {
   featureFlags: Record<string, boolean | string>;
@@ -96,7 +97,18 @@ export function AssignmentTester({ experimentKey, sampleId }: Props) {
           disabled={view.status === "loading"}
           className="btn-primary"
         >
-          {view.status === "loading" ? "Resolving…" : "Resolve"}
+          {view.status === "loading" ? (
+            <>
+              <Spinner
+                variant="bars"
+                label="Resolving"
+                style={{ color: "var(--color-bg)", height: "0.9em" }}
+              />
+              Resolving…
+            </>
+          ) : (
+            "Resolve"
+          )}
         </button>
       </form>
 

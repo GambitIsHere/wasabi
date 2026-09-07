@@ -20,6 +20,7 @@
 // lib/format-metric.ts's formatMetric — one formatter, every surface, unit-
 // and decimals-aware — instead of assuming "percent unless rev_per_acquired".
 import { useEffect, useState } from "react";
+import { Spinner } from "@/components/Spinner";
 import type { VariantRow, Verdict, SignificanceTest, UnavailableSignificance } from "@/lib/verdict";
 import type { MetricDef } from "@/lib/metrics-core";
 import { metricValue, isImprovement } from "@/lib/metrics-core";
@@ -609,6 +610,10 @@ function Narrative({ narrative }: { narrative: string }) {
 function ResultsSkeleton() {
   return (
     <div className="space-y-4" aria-busy="true" aria-label="Loading results">
+      <div className="flex items-center gap-2.5 font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
+        <Spinner variant="infinite" label="Measuring" />
+        Measuring…
+      </div>
       <div className="skeleton h-16 w-full" />
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="skeleton h-48" />
