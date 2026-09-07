@@ -16,7 +16,7 @@ function buildRows(byBusiness: BusinessCount[]): Row[] {
   for (const b of byBusiness) counts.set(b.business, b.count);
   // Every known business, plus any live business the roster doesn't list (e.g.
   // an "Unknown" bucket) so nothing captured is hidden.
-  const names = new Set<string>([...BUSINESSES, ...counts.keys()]);
+  const names = new Set<string>([...BUSINESSES.map((b) => b.label), ...counts.keys()]);
   return [...names]
     .map((business) => ({ business, count: counts.get(business) ?? 0 }))
     .sort((a, b) => b.count - a.count || a.business.localeCompare(b.business));

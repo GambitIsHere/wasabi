@@ -28,6 +28,7 @@ export default async function EditExperimentPage({
     goalMetric: exp.goalMetric,
     startDate: exp.startDate,
     description: exp.description,
+    youtrackTicket: exp.youtrackTicket,
     variants: exp.variants,
   };
 

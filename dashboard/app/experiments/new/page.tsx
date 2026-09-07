@@ -4,13 +4,35 @@ import {
   BUSINESSES,
   THEME_SLUGS,
   THEME_SLUG_RE,
+  nextExpId,
   type ExperimentInput,
 } from "@/lib/mgmt";
 import { getMetrics } from "@/lib/metrics";
+import { listExperiments } from "@/lib/store";
+import { listArchived } from "@/lib/archive";
 
 export const dynamic = "force-dynamic";
 
-const VALID_BUSINESS = new Set<string>([...BUSINESSES]);
+const VALID_BUSINESS = new Set<string>(BUSINESSES.map((b) => b.label));
+
+/**
+ * The next free EXP id — a single running counter across ALL experiments. Scans
+ * every live + archived experiment's key AND name for `EXP<n>` and returns the
+ * padded successor (see nextExpId). Both reads are tenant-scoped; a DB hiccup
+ * degrades to EXP001 (still an editable default) rather than taking the page
+ * down.
+ */
+async function suggestNextExpId(): Promise<string> {
+  try {
+    const [live, archived] = await Promise.all([listExperiments(), listArchived()]);
+    return nextExpId([
+      ...live.flatMap((e) => [e.key, e.name]),
+      ...archived.flatMap((a) => [a.key, a.name]),
+    ]);
+  } catch {
+    return nextExpId([]);
+  }
+}
 
 /**
  * Build the form's initial values, optionally prefilled from a backlog ticket's
@@ -27,7 +49,7 @@ function buildInitial(p: {
   theme: string;
   defaultGoalMetric: string;
 }): ExperimentInput {
-  const business = VALID_BUSINESS.has(p.business) ? p.business : BUSINESSES[0];
+  const business = VALID_BUSINESS.has(p.business) ? p.business : BUSINESSES[0].label;
   const theme = THEME_SLUG_RE.test(p.theme) ? p.theme : THEME_SLUGS[0];
   return {
     name: p.name.trim().slice(0, 120),
@@ -47,7 +69,11 @@ export default async function NewExperimentPage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  const [sp, metrics] = await Promise.all([searchParams, getMetrics()]);
+  const [sp, metrics, suggestedId] = await Promise.all([
+    searchParams,
+    getMetrics(),
+    suggestNextExpId(),
+  ]);
   const goalMetricOptions: GoalMetricOption[] = metrics
     .filter((m) => m.isGoal)
     .map((m) => ({ key: m.key, label: m.label, description: m.description }));
@@ -59,8 +85,9 @@ export default async function NewExperimentPage({
     theme: str(sp.theme),
     defaultGoalMetric: goalMetricOptions[0]?.key ?? "",
   });
+  // The `?ticket=` deep-link seeds the YouTrack ticket field now (NOT the Unique
+  // ID — that's the running EXP counter).
   const ticket = str(sp.ticket).trim();
-  const ytHost = process.env.YOUTRACK_HOST || "sanjow.youtrack.cloud";
 
   return (
     <div className="space-y-8">
@@ -76,26 +103,16 @@ export default async function NewExperimentPage({
         </h1>
         <p className="max-w-2xl text-sm leading-relaxed text-muted">
           Configure the arms and the storefront theme each routes to. The key is
-          slugged from the name and becomes the flag the engine assigns on.
+          slugged from the Unique ID and becomes the flag the engine assigns on.
         </p>
-        {ticket && (
-          <a
-            href={`https://${ytHost}/issue/${ticket}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-full border border-info/30 bg-info/10 px-2.5 py-0.5 font-mono text-[11px] text-info transition-colors hover:border-info/50"
-            title="The YouTrack ticket this experiment was prefilled from"
-          >
-            prefilled from {ticket} <span aria-hidden="true">↗</span>
-          </a>
-        )}
       </div>
 
       <ExperimentForm
         mode="create"
         initial={initial}
         goalMetricOptions={goalMetricOptions}
-        initialUniqueId={ticket}
+        initialUniqueId={suggestedId}
+        initialTicket={ticket}
       />
     </div>
   );

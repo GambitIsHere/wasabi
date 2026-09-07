@@ -31,6 +31,8 @@ export interface RegisteredExperiment {
   controlVariant: string;
   /** ISO date (YYYY-MM-DD) the experiment cohort starts (Application.createdAt floor). */
   startDate: string;
+  /** YouTrack ticket reference (bare ID or full URL); empty string when none. */
+  youtrackTicket: string;
   /**
    * Variant key → theme slug for the RESULTS query. For managed experiments this
    * mirrors the live split (no retired/historical arms are tracked). Order kept.

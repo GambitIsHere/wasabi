@@ -31,6 +31,12 @@ export interface ExperimentInput {
   /** Optional 1-2 sentence rationale shown on the card and detail page. */
   description?: string;
   /**
+   * Optional YouTrack ticket this experiment tracks — a bare issue ID (GP-603)
+   * or a full pasted issue URL. Empty/undefined when none. Rendered on the
+   * detail page as a "Ticket ↗" link (see youtrackTicketHref).
+   */
+  youtrackTicket?: string;
+  /**
    * Initial launch state — CREATE ONLY. `false` = start paused/queued (the
    * management-UI default, so a test can be wired + A/A-checked before it takes
    * real traffic); `true` = start active. Omitted on edit: the active flag is
@@ -58,6 +64,8 @@ export interface StoredExperiment {
   controlVariant: string;
   /** variant key → storefront `?theme=` slug. */
   themeMap: Record<string, string>;
+  /** YouTrack ticket reference (bare ID or full URL); empty string when none. */
+  youtrackTicket: string;
 }
 
 export type ActionResult = { ok: true; key: string } | { ok: false; error: string };
@@ -66,18 +74,33 @@ export type ActionResult = { ok: true; key: string } | { ok: false; error: strin
 // Reference data (single source of truth for the form selects + validation)
 // ---------------------------------------------------------------------------
 
-/** The real Sanjow businesses an experiment can belong to. */
+/**
+ * The real Sanjow businesses an experiment can belong to. Each carries a short
+ * uppercase `code` aligned to the YouTrack project codes — the Business <select>
+ * shows the full `label`, while the composed experiment name uses the `code`
+ * (see composeExperimentName + businessCode).
+ */
 export const BUSINESSES = [
-  "Top Up",
-  "Airport Check-In",
-  "Airport Security",
-  "PDF SaaS",
-  "Global Tickets",
-  "Global Visa",
-  "Gift Cards",
-  "Airport Lounges",
+  { label: "Top Up", code: "TU" },
+  { label: "Airport Check-In", code: "AC" },
+  { label: "Airport Security", code: "AS" },
+  { label: "PDF SaaS", code: "PDF" },
+  { label: "Global Tickets", code: "GT" },
+  { label: "Global Visa", code: "GV" },
+  { label: "Gift Cards", code: "GC" },
+  { label: "Airport Lounges", code: "AL" },
 ] as const;
-export type Business = (typeof BUSINESSES)[number];
+/** A business's full display label — the stored `business` value. */
+export type Business = (typeof BUSINESSES)[number]["label"];
+/** A business's short uppercase code (TU, PDF, AC…). */
+export type BusinessCode = (typeof BUSINESSES)[number]["code"];
+
+/** The short uppercase CODE for a business label (TU, PDF, AC…). Falls back to
+ *  the label itself for an unknown value (a stale/hand-edited business) so the
+ *  composed name degrades gracefully rather than dropping the segment. */
+export function businessCode(label: string): string {
+  return BUSINESSES.find((b) => b.label === label)?.code ?? label;
+}
 
 /**
  * SUGGESTED storefront `?theme=` slugs — surfaced as autocomplete in the form.
@@ -131,16 +154,18 @@ export function slugify(input: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-/** The separator the name schema joins its parts with. A middle dot, spaced,
- *  so the composed name reads as four labelled segments. */
-export const NAME_PART_SEPARATOR = " · ";
+/** The separator the name schema joins its parts with. A spaced pipe, so the
+ *  composed name reads as four labelled segments (EXP001 | TU | … | …). */
+export const NAME_PART_SEPARATOR = " | ";
 
 /**
  * Compose an experiment name from its 4-part schema —
- * `[unique ID] · [business/vertical] · [what the test is] · [which page]` —
+ * `[unique ID] | [business code] | [what the test is] | [which page]` —
  * skipping any blank part so a half-filled form still produces a clean name.
  * Pure so the form and its tests share one definition of "what the name looks
- * like"; the form keeps this EDITABLE (auto-fill, not a hard lock).
+ * like"; the form keeps this EDITABLE (auto-fill, not a hard lock). The caller
+ * passes the business CODE (see businessCode), not the full label, for the
+ * business segment.
  */
 export function composeExperimentName(parts: {
   uniqueId?: string;
@@ -152,6 +177,61 @@ export function composeExperimentName(parts: {
     .map((p) => (p ?? "").trim())
     .filter((p) => p.length > 0)
     .join(NAME_PART_SEPARATOR);
+}
+
+/** The running experiment counter's prefix and zero-pad width — EXP001, EXP002… */
+export const EXP_ID_PREFIX = "EXP";
+const EXP_ID_WIDTH = 3;
+const EXP_ID_RE = /EXP(\d+)/i;
+
+/**
+ * The next free experiment ID given every existing experiment/archive key AND
+ * name: scans each string for `EXP<n>` (case-insensitive), takes the max, and
+ * returns `EXP` + the zero-padded 3-digit successor. A single running counter
+ * across ALL experiments, floored at EXP001 when nothing matches. Pure so the
+ * server component can feed it the DB strings and the tests can pin the logic.
+ */
+export function nextExpId(existing: readonly string[]): string {
+  let max = 0;
+  for (const s of existing) {
+    const m = (s ?? "").match(EXP_ID_RE);
+    if (!m) continue;
+    const n = Number.parseInt(m[1], 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return `${EXP_ID_PREFIX}${String(max + 1).padStart(EXP_ID_WIDTH, "0")}`;
+}
+
+/** A bare YouTrack ticket id, e.g. GP-603, GAPI-12 — one or more uppercase
+ *  letters, a hyphen, then digits. */
+export const YOUTRACK_TICKET_RE = /^[A-Z]+-\d+$/;
+
+/** True when `value` is an acceptable YouTrack ticket reference: a bare ID
+ *  (GP-603) or a full http(s) URL (a pasted issue link). Blank is NOT valid
+ *  here — the field is optional, so callers skip this check when it's empty. */
+export function isValidYoutrackTicket(value: string): boolean {
+  const v = value.trim();
+  if (YOUTRACK_TICKET_RE.test(v)) return true;
+  try {
+    const u = new URL(v);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The link target for a stored YouTrack ticket reference. A full http(s) URL is
+ * used as-is; a bare ID becomes `${baseUrl}/issue/${id}`. Returns null for a
+ * blank value so callers omit the link entirely (degrade gracefully when
+ * absent). `baseUrl` is supplied by the server (env YOUTRACK_BASE_URL) so this
+ * stays pure and client-safe.
+ */
+export function youtrackTicketHref(ticket: string, baseUrl: string): string | null {
+  const v = (ticket ?? "").trim();
+  if (v.length === 0) return null;
+  if (/^https?:\/\//i.test(v)) return v;
+  return `${baseUrl.replace(/\/+$/, "")}/issue/${v}`;
 }
 
 /**
@@ -232,14 +312,23 @@ export function validateInput(
   if (input.description !== undefined && input.description.length > DESCRIPTION_MAX) {
     return `Description must be ${DESCRIPTION_MAX} characters or fewer (currently ${input.description.length}).`;
   }
-  if (!BUSINESSES.includes(input.business as Business)) {
-    return `Business must be one of: ${BUSINESSES.join(", ")}.`;
+  if (!BUSINESSES.some((b) => b.label === input.business)) {
+    return `Business must be one of: ${BUSINESSES.map((b) => b.label).join(", ")}.`;
   }
   if (!allowedGoalMetrics.includes(input.goalMetric)) {
     return `Goal metric must be one of: ${allowedGoalMetrics.join(", ")}.`;
   }
   if (!ISO_DATE_RE.test(input.startDate)) {
     return "Start date must be a valid date (YYYY-MM-DD).";
+  }
+  // YouTrack ticket is optional; when present it must be a bare issue ID
+  // (GP-603) or a full pasted URL.
+  if (
+    input.youtrackTicket !== undefined &&
+    input.youtrackTicket.trim().length > 0 &&
+    !isValidYoutrackTicket(input.youtrackTicket)
+  ) {
+    return "YouTrack ticket must be an issue ID like GP-603, or a full ticket URL.";
   }
 
   const key = (input.key && input.key.trim()) || slugify(input.name);

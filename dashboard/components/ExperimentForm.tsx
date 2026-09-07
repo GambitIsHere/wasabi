@@ -15,6 +15,7 @@ import {
   BUSINESSES,
   DESCRIPTION_MAX,
   THEME_SLUGS,
+  businessCode,
   composeExperimentName,
   evenSplit,
   keyFromIdOrName,
@@ -45,10 +46,13 @@ interface Props {
    *  below, which unions it in so editing degrades gracefully instead of
    *  crashing or silently swapping the value. */
   goalMetricOptions: GoalMetricOption[];
-  /** CREATE-only seed for the Name schema's Unique ID part (e.g. the YouTrack
-   *  ticket the test was prefilled from). Ignored on edit — the key is
-   *  immutable there. */
+  /** CREATE-only seed for the Name schema's Unique ID part — the running EXP
+   *  counter's next-free value (EXP001, EXP002…), computed server-side. Ignored
+   *  on edit, where the key is immutable. */
   initialUniqueId?: string;
+  /** CREATE-only seed for the YouTrack ticket field (the `?ticket=` deep-link
+   *  param). Edit prefills from `initial.youtrackTicket` instead. */
+  initialTicket?: string;
 }
 
 /** First non-empty line of the description, capped — the "What" part's optional
@@ -84,7 +88,7 @@ function draftsToVariants(drafts: VariantDraft[]): VariantInput[] {
   }));
 }
 
-export function ExperimentForm({ mode, initial, goalMetricOptions, initialUniqueId }: Props) {
+export function ExperimentForm({ mode, initial, goalMetricOptions, initialUniqueId, initialTicket }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
@@ -92,12 +96,13 @@ export function ExperimentForm({ mode, initial, goalMetricOptions, initialUnique
   const isCreate = mode === "create";
 
   // NAME SCHEMA (create only). The name assembles from four parts —
-  // [Unique ID] · [Business] · [What] · [Page] — via composeExperimentName.
-  // Business already has its own state below; the other three live here. The
-  // composed value auto-fills the (still editable) Name field until the user
-  // types into Name directly, at which point `nameTouched` freezes it so their
-  // wording is never clobbered. Edit mode never shows these — the name and key
-  // are already set and the key is immutable — so the parts stay "".
+  // [Unique ID] | [Business code] | [What] | [Page] — via composeExperimentName.
+  // Business already has its own state below (its full label); the composer uses
+  // the short CODE (businessCode). The other three parts live here. The composed
+  // value auto-fills the (still editable) Name field until the user types into
+  // Name directly, at which point `nameTouched` freezes it so their wording is
+  // never clobbered. Edit mode never shows these — the name and key are already
+  // set and the key is immutable — so the parts stay "".
   const [uniqueId, setUniqueId] = useState(isCreate ? (initialUniqueId ?? "") : "");
   const [what, setWhat] = useState(isCreate ? firstLine(initial.description ?? "") : "");
   const [page, setPage] = useState("");
@@ -108,12 +113,19 @@ export function ExperimentForm({ mode, initial, goalMetricOptions, initialUnique
     isCreate && !nameProvided
       ? composeExperimentName({
           uniqueId: initialUniqueId ?? "",
-          business: initial.business,
+          business: businessCode(initial.business),
           what: firstLine(initial.description ?? ""),
         })
       : initial.name,
   );
   const [nameTouched, setNameTouched] = useState(nameProvided);
+
+  // Optional YouTrack ticket this experiment tracks. On create it's seeded from
+  // the `?ticket=` deep-link param; on edit from the stored value. Rendered on
+  // the detail page as a "Ticket ↗" link.
+  const [youtrackTicket, setYoutrackTicket] = useState(
+    isCreate ? (initialTicket ?? "") : (initial.youtrackTicket ?? ""),
+  );
 
   const [goalMetric, setGoalMetric] = useState(initial.goalMetric);
   const [startDate, setStartDate] = useState(initial.startDate);
@@ -134,9 +146,10 @@ export function ExperimentForm({ mode, initial, goalMetricOptions, initialUnique
     page?: string;
   }) {
     if (!isCreate || nameTouched) return;
-    setName(
-      composeExperimentName({ uniqueId, business, what, page, ...override }),
-    );
+    const parts = { uniqueId, business, what, page, ...override };
+    // The business segment is the short CODE (TU, PDF…), not the full label the
+    // <select> holds — see businessCode.
+    setName(composeExperimentName({ ...parts, business: businessCode(parts.business) }));
   }
 
   // CREATE-ONLY launch state. A new test defaults to PAUSED (queued) so it can
@@ -212,6 +225,7 @@ export function ExperimentForm({ mode, initial, goalMetricOptions, initialUnique
     goalMetric,
     startDate,
     description,
+    youtrackTicket,
     // Launch state is a create-time initial value only. On edit it's left
     // undefined so the update path never touches the active flag (owned by
     // ExperimentControls) — see ExperimentInput.active.
@@ -333,13 +347,14 @@ export function ExperimentForm({ mode, initial, goalMetricOptions, initialUnique
           setUniqueId(e.target.value);
           recomposeName({ uniqueId: e.target.value });
         }}
-        placeholder="e.g. GP-603"
+        placeholder="e.g. EXP001"
         spellCheck={false}
         autoComplete="off"
         className={inputClass}
       />
       <span className="text-[11px] text-faint">
-        The key is slugged from this, so it stays short and stable.
+        The running EXP counter&apos;s next free value. The key is slugged from
+        this, so it stays short and stable.
       </span>
     </label>
   );
@@ -386,11 +401,30 @@ export function ExperimentForm({ mode, initial, goalMetricOptions, initialUnique
         className={inputClass}
       >
         {BUSINESSES.map((b) => (
-          <option key={b} value={b}>
-            {b}
+          <option key={b.label} value={b.label}>
+            {b.label}
           </option>
         ))}
       </select>
+    </label>
+  );
+
+  const youtrackTicketField = (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-xs font-medium text-muted">YouTrack ticket</span>
+      <input
+        type="text"
+        value={youtrackTicket}
+        onChange={(e) => setYoutrackTicket(e.target.value)}
+        placeholder="e.g. GP-603 or a full ticket URL"
+        spellCheck={false}
+        autoComplete="off"
+        className={inputClass}
+      />
+      <span className="text-[11px] text-faint">
+        Optional. A bare ID (GP-603) or a pasted URL — shown as a link on the
+        experiment page.
+      </span>
     </label>
   );
 
@@ -418,7 +452,7 @@ export function ExperimentForm({ mode, initial, goalMetricOptions, initialUnique
           // Clearing the field resumes auto-fill; any other edit freezes it.
           if (isCreate) setNameTouched(v.trim().length > 0);
         }}
-        placeholder="e.g. GP-603 · Top Up · £19 vs £39 SKU · recharge landing"
+        placeholder="e.g. EXP001 | TU | Reassurance Banner | /recharge ads-flow"
         className={inputClass}
       />
       <span className="text-[11px] text-muted">
@@ -474,8 +508,8 @@ export function ExperimentForm({ mode, initial, goalMetricOptions, initialUnique
         <h2 className="font-display text-sm font-semibold text-fg">Basics</h2>
         {isCreate && (
           <p className="mt-0.5 text-xs text-faint">
-            The name assembles from four parts — ID · business · what · page —
-            and stays editable.
+            The name assembles from four parts — ID | business code | what |
+            page — and stays editable.
           </p>
         )}
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -486,6 +520,7 @@ export function ExperimentForm({ mode, initial, goalMetricOptions, initialUnique
               {whatField}
               {pageField}
               {startDateField}
+              {youtrackTicketField}
               {nameField}
               {descriptionField}
               {goalField}
@@ -496,6 +531,7 @@ export function ExperimentForm({ mode, initial, goalMetricOptions, initialUnique
               {descriptionField}
               {businessField}
               {startDateField}
+              {youtrackTicketField}
               {goalField}
             </>
           )}

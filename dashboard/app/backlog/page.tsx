@@ -12,7 +12,7 @@ import { BUSINESSES } from "@/lib/mgmt";
 // admin middleware, so ticket context stays internal.
 export const dynamic = "force-dynamic";
 
-const BUSINESS_ORDER = [...BUSINESSES] as string[];
+const BUSINESS_ORDER = BUSINESSES.map((b) => b.label) as string[];
 const ACTIVE_TAB = "rounded-md bg-accent px-3 py-1 text-bg";
 const IDLE_TAB = "rounded-md px-3 py-1 text-muted transition-colors hover:text-fg";
 

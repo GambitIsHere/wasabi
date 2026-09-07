@@ -41,6 +41,7 @@ interface ExperimentRow {
   start_date: string;
   created_at: string;
   description: string;
+  youtrack_ticket: string | null;
   project_id: string;
 }
 
@@ -82,6 +83,7 @@ function toStored(exp: ExperimentRow, variants: VariantRow[]): StoredExperiment 
     variants: variantInputs,
     controlVariant: control?.key ?? "",
     themeMap,
+    youtrackTicket: exp.youtrack_ticket ?? "",
   };
 }
 
@@ -185,6 +187,8 @@ async function insertRaw(input: ExperimentInput): Promise<string> {
   const key = resolveKey(input);
   const createdAt = new Date().toISOString();
   const description = (input.description ?? "").trim();
+  // Optional YouTrack ticket — stored trimmed, or NULL when blank.
+  const youtrackTicket = (input.youtrackTicket ?? "").trim() || null;
   // Launch state. A NEW test from the management form defaults to PAUSED
   // (active:false) so it can be wired + A/A-checked before real traffic. An
   // OMITTED active (input.active === undefined) stays active(1): that's the
@@ -192,8 +196,8 @@ async function insertRaw(input: ExperimentInput): Promise<string> {
   // SEED_PAUSED keys off via setActiveRaw — so seeding behaviour is unchanged.
   const active = input.active === false ? 0 : 1;
   await sql.transaction([
-    sql`INSERT INTO experiment (key, name, business, active, goal_metric, start_date, created_at, description, project_id)
-        VALUES (${key}, ${input.name.trim()}, ${input.business}, ${active}, ${input.goalMetric}, ${input.startDate}, ${createdAt}, ${description}, ${projectId})`,
+    sql`INSERT INTO experiment (key, name, business, active, goal_metric, start_date, created_at, description, youtrack_ticket, project_id)
+        VALUES (${key}, ${input.name.trim()}, ${input.business}, ${active}, ${input.goalMetric}, ${input.startDate}, ${createdAt}, ${description}, ${youtrackTicket}, ${projectId})`,
     ...variantInserts(sql, key, input.variants),
   ]);
   return key;
@@ -233,11 +237,12 @@ export async function updateExperiment(
   const owned = (await sql`SELECT 1 AS one FROM experiment WHERE key = ${key} AND project_id = ${projectId}`) as unknown as unknown[];
   if (owned.length === 0) return; // not found, or owned by another tenant — no-op (caller already 404s via getExperiment)
   const description = (input.description ?? "").trim();
+  const youtrackTicket = (input.youtrackTicket ?? "").trim() || null;
   await sql.transaction([
     sql`UPDATE experiment
           SET name = ${input.name.trim()}, business = ${input.business},
               goal_metric = ${input.goalMetric}, start_date = ${input.startDate},
-              description = ${description}
+              description = ${description}, youtrack_ticket = ${youtrackTicket}
         WHERE key = ${key} AND project_id = ${projectId}`,
     sql`DELETE FROM variant WHERE experiment_key = ${key}`,
     ...variantInserts(sql, key, input.variants),
@@ -307,6 +312,7 @@ export function toRegistered(exp: StoredExperiment): RegisteredExperiment {
     themeMap: exp.themeMap,
     controlVariant: exp.controlVariant,
     startDate: exp.startDate,
+    youtrackTicket: exp.youtrackTicket,
     // The live arms ARE the results arms for managed experiments (no retired
     // historical arms tracked in the DB model).
     resultsThemeMap: exp.variants.map((v) => ({
