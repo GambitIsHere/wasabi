@@ -10,7 +10,9 @@
 import { describe, expect, it } from "vitest";
 import {
   DESCRIPTION_MAX,
+  composeExperimentName,
   evenSplit,
+  keyFromIdOrName,
   slugify,
   splitTotal,
   validateInput,
@@ -323,5 +325,56 @@ describe("evenSplit", () => {
     ];
     // A/A-style input (identical theme slugs, even split) — must validate.
     expect(validateInput({ ...validInput(), variants }, ALLOWED_GOAL_METRICS)).toBeNull();
+  });
+});
+
+describe("composeExperimentName — the 4-part name schema", () => {
+  it("joins all four parts in ID · business · what · page order", () => {
+    expect(
+      composeExperimentName({
+        uniqueId: "GP-603",
+        business: "Top Up",
+        what: "£19 vs £39 SKU",
+        page: "recharge landing",
+      }),
+    ).toBe("GP-603 · Top Up · £19 vs £39 SKU · recharge landing");
+  });
+
+  it("skips blank / whitespace-only / missing parts rather than leaving empty segments", () => {
+    expect(
+      composeExperimentName({ uniqueId: "GP-1", business: "Top Up", what: "   ", page: "" }),
+    ).toBe("GP-1 · Top Up");
+    expect(composeExperimentName({ business: "PDF SaaS" })).toBe("PDF SaaS");
+    expect(composeExperimentName({})).toBe("");
+  });
+
+  it("trims each part", () => {
+    expect(composeExperimentName({ uniqueId: "  GP-2  ", what: "  copy test  " })).toBe(
+      "GP-2 · copy test",
+    );
+  });
+});
+
+describe("keyFromIdOrName — key derives from the Unique ID, not the whole name", () => {
+  it("slugs the Unique ID when present (short, stable key)", () => {
+    expect(keyFromIdOrName("GP-603", "GP-603 · Top Up · £19 vs £39 · landing")).toBe("gp-603");
+  });
+
+  it("falls back to slugging the name when there is no ID", () => {
+    expect(keyFromIdOrName("", "Top Up Billing UK")).toBe("top-up-billing-uk");
+    expect(keyFromIdOrName("   ", "Top Up Billing UK")).toBe("top-up-billing-uk");
+  });
+
+  it("falls back to the name when the ID has no sluggable characters", () => {
+    expect(keyFromIdOrName("###", "Top Up Test")).toBe("top-up-test");
+  });
+
+  it("returns '' only when both ID and name are empty (validateInput then fails on name)", () => {
+    expect(keyFromIdOrName("", "")).toBe("");
+  });
+
+  it("produces a key that passes validateInput's key rule", () => {
+    const key = keyFromIdOrName("GP-603", "irrelevant");
+    expect(validate(validInput({ key, name: "GP-603 · Top Up · x · y" }))).toBeNull();
   });
 });

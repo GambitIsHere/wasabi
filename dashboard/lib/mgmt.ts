@@ -131,6 +131,41 @@ export function slugify(input: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+/** The separator the name schema joins its parts with. A middle dot, spaced,
+ *  so the composed name reads as four labelled segments. */
+export const NAME_PART_SEPARATOR = " · ";
+
+/**
+ * Compose an experiment name from its 4-part schema —
+ * `[unique ID] · [business/vertical] · [what the test is] · [which page]` —
+ * skipping any blank part so a half-filled form still produces a clean name.
+ * Pure so the form and its tests share one definition of "what the name looks
+ * like"; the form keeps this EDITABLE (auto-fill, not a hard lock).
+ */
+export function composeExperimentName(parts: {
+  uniqueId?: string;
+  business?: string;
+  what?: string;
+  page?: string;
+}): string {
+  return [parts.uniqueId, parts.business, parts.what, parts.page]
+    .map((p) => (p ?? "").trim())
+    .filter((p) => p.length > 0)
+    .join(NAME_PART_SEPARATOR);
+}
+
+/**
+ * The key for a NEW experiment: the slug of the Unique ID when it yields a
+ * valid slug (e.g. "GP-603" → "gp-603"), else the slug of the name. Deriving
+ * the key from the short ID rather than the whole composed name keeps keys
+ * short and stable — the composed name changes as the schema parts are edited,
+ * the ID does not. Returns "" only when BOTH are empty (validateInput then
+ * fails on the required name, never on the key).
+ */
+export function keyFromIdOrName(uniqueId: string, name: string): string {
+  return slugify(uniqueId) || slugify(name);
+}
+
 // ---------------------------------------------------------------------------
 // Validation — used by BOTH the client form (live, to gate submit) and the
 // server actions (authoritative). Returns a single error string or null.

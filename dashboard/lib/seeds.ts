@@ -178,6 +178,44 @@ export const SEED_METRICS: MetricInput[] = [
     displayOrder: 40,
     enabled: true,
   },
+  // Ads-funnel goal metrics — backed by the results query's `ads` CTE
+  // (gAdsConversion JOIN Theme, see lib/metabase.ts): ad_clicks = rows,
+  // ad_conversions = rows WHERE converted. Both map to real VariantRow fields
+  // (adClicks / adConversions), so they compute for any theme that has Google
+  // Ads conversion rows; a theme with none reads null (blank), never a fake 0.
+  // showInTable is false so they're selectable as a goal WITHOUT adding new
+  // columns to the results table (the "Clicks" column already covers ad volume).
+  {
+    key: "conversions",
+    label: "Conversions",
+    description:
+      "Google Ads conversions attributed to the arm's theme (gAdsConversion.converted). Needs ad-conversion data for the theme to show a value.",
+    kind: "sum",
+    direction: "higher_is_better",
+    unit: "count",
+    valueField: "adConversions",
+    decimals: 0,
+    isGoal: true,
+    showInTable: false,
+    displayOrder: 45,
+    enabled: true,
+  },
+  {
+    key: "conversion_rate",
+    label: "Conversion rate",
+    description:
+      "Ad conversions ÷ ad clicks for the arm's theme — the paid-traffic conversion rate. Needs ad-click data for the theme to show a value.",
+    kind: "ratio",
+    direction: "higher_is_better",
+    unit: "percent",
+    numeratorField: "adConversions",
+    denominatorField: "adClicks",
+    decimals: 1,
+    isGoal: true,
+    showInTable: false,
+    displayOrder: 46,
+    enabled: true,
+  },
   {
     key: "net_revenue",
     label: "Net revenue",

@@ -15,20 +15,24 @@ import {
   BUSINESSES,
   DESCRIPTION_MAX,
   THEME_SLUGS,
+  composeExperimentName,
   evenSplit,
-  slugify,
+  keyFromIdOrName,
   splitTotal,
   validateInput,
 } from "@/lib/mgmt";
 import type { ExperimentInput, VariantInput } from "@/lib/mgmt";
+import { previewUrlFor, storefrontFor } from "@/lib/storefronts";
 import { createExperiment, updateExperiment } from "@/app/actions";
 
-/** One goal-metric dropdown option: `key` is what's stored, `label` is what's
- *  shown. Server-fetched (this is a client component; it can't read the
+/** One goal-metric option: `key` is what's stored, `label` is what's shown, and
+ *  `description` is what it tracks (surfaced as a per-metric hover + inline in
+ *  the picker). Server-fetched (this is a client component; it can't read the
  *  registry DB itself) — see app/experiments/new|[key]/edit's page.tsx. */
 export interface GoalMetricOption {
   key: string;
   label: string;
+  description: string;
 }
 
 interface Props {
@@ -41,6 +45,17 @@ interface Props {
    *  below, which unions it in so editing degrades gracefully instead of
    *  crashing or silently swapping the value. */
   goalMetricOptions: GoalMetricOption[];
+  /** CREATE-only seed for the Name schema's Unique ID part (e.g. the YouTrack
+   *  ticket the test was prefilled from). Ignored on edit — the key is
+   *  immutable there. */
+  initialUniqueId?: string;
+}
+
+/** First non-empty line of the description, capped — the "What" part's optional
+ *  prefill (the schema's "what the test is" segment). */
+function firstLine(text: string): string {
+  const line = (text.split(/\r?\n/, 1)[0] ?? "").trim();
+  return line.slice(0, 80);
 }
 
 /** Editable row state (split kept as string so the input can be transiently empty). */
@@ -69,17 +84,60 @@ function draftsToVariants(drafts: VariantDraft[]): VariantInput[] {
   }));
 }
 
-export function ExperimentForm({ mode, initial, goalMetricOptions }: Props) {
+export function ExperimentForm({ mode, initial, goalMetricOptions, initialUniqueId }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
 
-  const [name, setName] = useState(initial.name);
+  const isCreate = mode === "create";
+
+  // NAME SCHEMA (create only). The name assembles from four parts —
+  // [Unique ID] · [Business] · [What] · [Page] — via composeExperimentName.
+  // Business already has its own state below; the other three live here. The
+  // composed value auto-fills the (still editable) Name field until the user
+  // types into Name directly, at which point `nameTouched` freezes it so their
+  // wording is never clobbered. Edit mode never shows these — the name and key
+  // are already set and the key is immutable — so the parts stay "".
+  const [uniqueId, setUniqueId] = useState(isCreate ? (initialUniqueId ?? "") : "");
+  const [what, setWhat] = useState(isCreate ? firstLine(initial.description ?? "") : "");
+  const [page, setPage] = useState("");
+
   const [business, setBusiness] = useState(initial.business);
+  const nameProvided = initial.name.trim().length > 0;
+  const [name, setName] = useState(
+    isCreate && !nameProvided
+      ? composeExperimentName({
+          uniqueId: initialUniqueId ?? "",
+          business: initial.business,
+          what: firstLine(initial.description ?? ""),
+        })
+      : initial.name,
+  );
+  const [nameTouched, setNameTouched] = useState(nameProvided);
+
   const [goalMetric, setGoalMetric] = useState(initial.goalMetric);
   const [startDate, setStartDate] = useState(initial.startDate);
   const [description, setDescription] = useState(initial.description ?? "");
   const [drafts, setDrafts] = useState<VariantDraft[]>(toDrafts(initial.variants));
+
+  // Live preview section is opt-in: it embeds external storefront iframes, so
+  // we don't hit those origins until the author asks to see them.
+  const [showPreview, setShowPreview] = useState(false);
+
+  /** Recompose the Name from the four schema parts unless the user has taken it
+   *  over. `override` carries the just-changed part so we don't race React
+   *  state. Create-only — edit never recomposes. */
+  function recomposeName(override: {
+    uniqueId?: string;
+    business?: string;
+    what?: string;
+    page?: string;
+  }) {
+    if (!isCreate || nameTouched) return;
+    setName(
+      composeExperimentName({ uniqueId, business, what, page, ...override }),
+    );
+  }
 
   // CREATE-ONLY launch state. A new test defaults to PAUSED (queued) so it can
   // be wired + A/A-checked before real traffic; this is threaded to the store as
@@ -103,7 +161,11 @@ export function ExperimentForm({ mode, initial, goalMetricOptions }: Props) {
     if (goalMetricOptions.some((o) => o.key === initial.goalMetric)) return goalMetricOptions;
     return [
       ...goalMetricOptions,
-      { key: initial.goalMetric, label: `${initial.goalMetric} — not in registry` },
+      {
+        key: initial.goalMetric,
+        label: `${initial.goalMetric} — not in registry`,
+        description: "This experiment's stored goal metric is not (or no longer) in the registry.",
+      },
     ];
   }, [goalMetricOptions, initial.goalMetric]);
   // validateInput takes the allowed set explicitly (it's a pure module — see
@@ -130,9 +192,12 @@ export function ExperimentForm({ mode, initial, goalMetricOptions }: Props) {
     }
   }, [drafts.length]);
 
-  // On create the key tracks the name (slug); on edit it's immutable.
-  const resolvedKey =
-    mode === "edit" ? (initial.key ?? "") : slugify(name) || "—";
+  // On create the key is derived from the Unique ID (slugged) so it stays short
+  // and stable as the composed name changes — falling back to slugging the name
+  // when there's no ID. On edit it's immutable. "" (nothing to slug yet) shows
+  // as "—"; validateInput only ever fails on the required Name, never the key.
+  const createKey = keyFromIdOrName(uniqueId, name);
+  const resolvedKey = mode === "edit" ? (initial.key ?? "") : createKey || "—";
 
   const variants = useMemo(() => draftsToVariants(drafts), [drafts]);
   const total = splitTotal(variants);
@@ -140,7 +205,9 @@ export function ExperimentForm({ mode, initial, goalMetricOptions }: Props) {
 
   const candidate: ExperimentInput = {
     name,
-    key: mode === "edit" ? initial.key : undefined,
+    // Create: the Unique-ID-derived key (undefined when there's no ID yet, so
+    // the store falls back to slugging the name). Edit: the locked key.
+    key: mode === "edit" ? initial.key : createKey || undefined,
     business,
     goalMetric,
     startDate,
@@ -250,93 +317,188 @@ export function ExperimentForm({ mode, initial, goalMetricOptions }: Props) {
     });
   }
 
+  const inputClass =
+    "rounded-lg border border-line-strong bg-bg px-3 py-2 text-sm text-fg placeholder:text-faint focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40";
+
+  // --- Basics fields, arranged per mode in the grid below ---
+  // CREATE-only schema parts. Each edit recomposes the Name (unless the user
+  // has taken it over — see recomposeName).
+  const uniqueIdField = (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-xs font-medium text-muted">Unique ID</span>
+      <input
+        type="text"
+        value={uniqueId}
+        onChange={(e) => {
+          setUniqueId(e.target.value);
+          recomposeName({ uniqueId: e.target.value });
+        }}
+        placeholder="e.g. GP-603"
+        spellCheck={false}
+        autoComplete="off"
+        className={inputClass}
+      />
+      <span className="text-[11px] text-faint">
+        The key is slugged from this, so it stays short and stable.
+      </span>
+    </label>
+  );
+  const whatField = (
+    <label className="flex flex-col gap-1.5 sm:col-span-2">
+      <span className="text-xs font-medium text-muted">What (the test in a few words)</span>
+      <input
+        type="text"
+        value={what}
+        onChange={(e) => {
+          setWhat(e.target.value);
+          recomposeName({ what: e.target.value });
+        }}
+        placeholder="e.g. £19 vs £39 SKU"
+        className={inputClass}
+      />
+    </label>
+  );
+  const pageField = (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-xs font-medium text-muted">Page</span>
+      <input
+        type="text"
+        value={page}
+        onChange={(e) => {
+          setPage(e.target.value);
+          recomposeName({ page: e.target.value });
+        }}
+        placeholder="e.g. recharge landing"
+        className={inputClass}
+      />
+    </label>
+  );
+
+  const businessField = (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-xs font-medium text-muted">Business</span>
+      <select
+        value={business}
+        onChange={(e) => {
+          setBusiness(e.target.value);
+          recomposeName({ business: e.target.value });
+        }}
+        className={inputClass}
+      >
+        {BUSINESSES.map((b) => (
+          <option key={b} value={b}>
+            {b}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+
+  const startDateField = (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-xs font-medium text-muted">Start date</span>
+      <input
+        type="date"
+        value={startDate}
+        onChange={(e) => setStartDate(e.target.value)}
+        className={inputClass}
+      />
+    </label>
+  );
+
+  const nameField = (
+    <label className="flex flex-col gap-1.5 sm:col-span-2">
+      <span className="text-xs font-medium text-muted">Name</span>
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => {
+          const v = e.target.value;
+          setName(v);
+          // Clearing the field resumes auto-fill; any other edit freezes it.
+          if (isCreate) setNameTouched(v.trim().length > 0);
+        }}
+        placeholder="e.g. GP-603 · Top Up · £19 vs £39 SKU · recharge landing"
+        className={inputClass}
+      />
+      <span className="text-[11px] text-muted">
+        Key: <code className="font-mono text-accent/90">{resolvedKey}</code>
+        {mode === "edit" && <span className="ml-1 text-faint">(immutable)</span>}
+      </span>
+      {isCreate && (
+        <span className="text-[11px] text-faint">
+          Assembled from the four parts above. Edit to override, or clear to
+          resume auto-fill.
+        </span>
+      )}
+    </label>
+  );
+
+  const descriptionField = (
+    <label className="flex flex-col gap-1.5 sm:col-span-2">
+      <span className="flex items-baseline justify-between">
+        <span className="text-xs font-medium text-muted">Description</span>
+        <span
+          className={`font-mono text-[10px] tabular-nums ${
+            description.length > DESCRIPTION_MAX ? "text-bad" : "text-muted"
+          }`}
+        >
+          {description.length} / {DESCRIPTION_MAX}
+        </span>
+      </span>
+      <textarea
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Why this test exists — the hypothesis, what you'll learn, and any wiring/context the dashboard reader needs. Shown on the card and the detail header."
+        rows={3}
+        className="resize-y rounded-lg border border-line-strong bg-bg px-3 py-2 text-sm leading-relaxed text-fg placeholder:text-faint focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
+      />
+    </label>
+  );
+
+  const goalField = (
+    <div className="flex flex-col gap-1.5 sm:col-span-2">
+      <span className="text-xs font-medium text-muted">Goal metric</span>
+      <GoalMetricPicker options={goalOptions} value={goalMetric} onChange={setGoalMetric} />
+      <span className="text-[11px] text-faint">
+        The goal event must be captured from the storefront, or the test
+        measures nothing.
+      </span>
+    </div>
+  );
+
   return (
     <form onSubmit={onSubmit} className="space-y-8">
       {/* --- Core fields --- */}
       <section className="rounded-xl border border-line bg-surface p-5">
         <h2 className="font-display text-sm font-semibold text-fg">Basics</h2>
+        {isCreate && (
+          <p className="mt-0.5 text-xs text-faint">
+            The name assembles from four parts — ID · business · what · page —
+            and stays editable.
+          </p>
+        )}
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <label className="flex flex-col gap-1.5 sm:col-span-2">
-            <span className="text-xs font-medium text-muted">Name</span>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Top-Up Billing UK"
-              className="rounded-lg border border-line-strong bg-bg px-3 py-2 text-sm text-fg placeholder:text-faint focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
-            />
-            <span className="text-[11px] text-muted">
-              Key:{" "}
-              <code className="font-mono text-accent/90">{resolvedKey}</code>
-              {mode === "edit" && (
-                <span className="ml-1 text-faint">(immutable)</span>
-              )}
-            </span>
-          </label>
-
-          <label className="flex flex-col gap-1.5 sm:col-span-2">
-            <span className="flex items-baseline justify-between">
-              <span className="text-xs font-medium text-muted">Description</span>
-              <span
-                className={`font-mono text-[10px] tabular-nums ${
-                  description.length > DESCRIPTION_MAX ? "text-bad" : "text-muted"
-                }`}
-              >
-                {description.length} / {DESCRIPTION_MAX}
-              </span>
-            </span>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Why this test exists — the hypothesis, what you'll learn, and any wiring/context the dashboard reader needs. Shown on the card and the detail header."
-              rows={3}
-              className="resize-y rounded-lg border border-line-strong bg-bg px-3 py-2 text-sm leading-relaxed text-fg placeholder:text-faint focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
-            />
-          </label>
-
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted">Business</span>
-            <select
-              value={business}
-              onChange={(e) => setBusiness(e.target.value)}
-              className="rounded-lg border border-line-strong bg-bg px-3 py-2 text-sm text-fg focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
-            >
-              {BUSINESSES.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted">Goal metric</span>
-            <select
-              value={goalMetric}
-              onChange={(e) => setGoalMetric(e.target.value)}
-              className="rounded-lg border border-line-strong bg-bg px-3 py-2 font-mono text-sm text-fg focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
-            >
-              {goalOptions.map((g) => (
-                <option key={g.key} value={g.key}>
-                  {g.label}
-                </option>
-              ))}
-            </select>
-            <span className="text-[11px] text-faint">
-              The goal event must be captured from the storefront, or the test
-              measures nothing.
-            </span>
-          </label>
-
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted">Start date</span>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="rounded-lg border border-line-strong bg-bg px-3 py-2 text-sm text-fg focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
-            />
-          </label>
+          {isCreate ? (
+            <>
+              {uniqueIdField}
+              {businessField}
+              {whatField}
+              {pageField}
+              {startDateField}
+              {nameField}
+              {descriptionField}
+              {goalField}
+            </>
+          ) : (
+            <>
+              {nameField}
+              {descriptionField}
+              {businessField}
+              {startDateField}
+              {goalField}
+            </>
+          )}
         </div>
       </section>
 
@@ -389,98 +551,107 @@ export function ExperimentForm({ mode, initial, goalMetricOptions }: Props) {
         )}
 
         <div ref={rowsRef} className="divide-y divide-line">
-          {drafts.map((d, i) => (
-            <div
-              key={i}
-              className="grid grid-cols-1 gap-2 px-5 py-3 sm:grid-cols-[auto_1.2fr_5rem_1fr_auto] sm:items-center sm:gap-3"
-            >
-              {/* control radio */}
-              <label className="flex items-center gap-1.5 text-[11px] text-muted">
-                <input
-                  type="radio"
-                  name="control"
-                  checked={d.isControl}
-                  onChange={() => setControl(i)}
-                  aria-label={`Use variant ${d.key} as control`}
-                  className="size-3.5 accent-[var(--color-info)]"
-                />
-                <span className="sm:hidden">Control</span>
-                <span className="hidden sm:inline">ctrl</span>
-              </label>
-
-              {/* key */}
-              <input
-                type="text"
-                value={d.key}
-                onChange={(e) => updateRow(i, { key: e.target.value })}
-                placeholder="variant key"
-                spellCheck={false}
-                autoComplete="off"
-                data-role="variant-key"
-                aria-label={`Variant ${i + 1} key`}
-                className="rounded-md border border-line-strong bg-bg px-2.5 py-1.5 font-mono text-xs text-fg placeholder:text-faint focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
-              />
-
-              {/* split */}
-              <div className="relative">
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={d.rollout}
-                  onChange={(e) => updateRow(i, { rollout: e.target.value })}
-                  aria-label={`Variant ${d.key} traffic split percentage`}
-                  className="w-full rounded-md border border-line-strong bg-bg px-2.5 py-1.5 pr-6 text-right font-mono text-xs tabular-nums text-fg focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
-                />
-                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-faint">
-                  %
-                </span>
-              </div>
-
-              {/* theme slug — free text (any global-api Theme slug works across
-                  all businesses); the common ones are suggested via the datalist
-                  below. Validation is format-based (see mgmt.ts THEME_SLUG_RE).
-                  In A/A mode every arm mirrors the control's slug, so only the
-                  control's field is editable and the rest are shown read-only. */}
-              <input
-                type="text"
-                list="wasabi-theme-slugs"
-                value={d.themeSlug}
-                onChange={(e) => setTheme(i, e.target.value)}
-                readOnly={aaMode && !d.isControl}
-                placeholder="tu_lov_uk_19"
-                spellCheck={false}
-                autoComplete="off"
-                autoCapitalize="none"
-                autoCorrect="off"
-                title={
-                  aaMode && !d.isControl
-                    ? "A/A mode — mirrors the control arm's theme"
-                    : undefined
-                }
-                className={`w-full rounded-md border border-line-strong bg-bg px-2.5 py-1.5 font-mono text-xs text-accent/90 placeholder:text-faint focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40 ${
-                  aaMode && !d.isControl ? "cursor-not-allowed opacity-60" : ""
+          {drafts.map((d, i) => {
+            // A/A mode: every non-control arm MIRRORS the control (same theme,
+            // even split). Its whole row is darkened and its inputs disabled —
+            // not just the theme read-only — so it's visually obvious the arm
+            // isn't independently configurable while A/A is on. Toggling A/A off
+            // restores the inputs and the snapshotted slugs (see toggleAaMode).
+            const inactive = aaMode && !d.isControl;
+            const cellClass =
+              "rounded-md border border-line-strong bg-bg px-2.5 py-1.5 text-xs focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40 disabled:cursor-not-allowed";
+            return (
+              <div
+                key={i}
+                title={inactive ? "A/A mode — this arm mirrors the control" : undefined}
+                className={`grid grid-cols-1 gap-2 px-5 py-3 transition-opacity sm:grid-cols-[auto_1.2fr_5rem_1fr_auto] sm:items-center sm:gap-3 ${
+                  inactive ? "bg-bg/40 opacity-50" : ""
                 }`}
-                aria-label={`Theme slug for variant ${d.key}`}
-              />
-
-              {/* remove */}
-              <button
-                type="button"
-                onClick={() => removeRow(i)}
-                disabled={drafts.length <= 2}
-                title={
-                  drafts.length <= 2
-                    ? "An experiment needs at least 2 variants"
-                    : "Remove variant"
-                }
-                className="justify-self-end rounded-md border border-line-strong bg-bg px-2 py-1 text-xs text-faint transition-colors hover:border-bad/40 hover:text-bad disabled:cursor-not-allowed disabled:opacity-40 sm:justify-self-auto"
-                aria-label={`Remove variant ${d.key}`}
               >
-                ✕
-              </button>
-            </div>
-          ))}
+                {/* control radio — stays live so control can be re-designated */}
+                <label className="flex items-center gap-1.5 text-[11px] text-muted">
+                  <input
+                    type="radio"
+                    name="control"
+                    checked={d.isControl}
+                    onChange={() => setControl(i)}
+                    aria-label={`Use variant ${d.key} as control`}
+                    className="size-3.5 accent-[var(--color-info)]"
+                  />
+                  <span className="sm:hidden">Control</span>
+                  <span className="hidden sm:inline">ctrl</span>
+                </label>
+
+                {/* key */}
+                <input
+                  type="text"
+                  value={d.key}
+                  onChange={(e) => updateRow(i, { key: e.target.value })}
+                  disabled={inactive}
+                  placeholder="variant key"
+                  spellCheck={false}
+                  autoComplete="off"
+                  data-role="variant-key"
+                  aria-label={`Variant ${i + 1} key`}
+                  className={`font-mono text-fg placeholder:text-faint ${cellClass}`}
+                />
+
+                {/* split */}
+                <div className="relative">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={d.rollout}
+                    onChange={(e) => updateRow(i, { rollout: e.target.value })}
+                    disabled={inactive}
+                    aria-label={`Variant ${d.key} traffic split percentage`}
+                    className={`w-full pr-6 text-right font-mono tabular-nums text-fg ${cellClass}`}
+                  />
+                  <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-faint">
+                    %
+                  </span>
+                </div>
+
+                {/* theme slug — free text (any global-api Theme slug works across
+                    all businesses); the common ones are suggested via the datalist
+                    below. Validation is format-based (see mgmt.ts THEME_SLUG_RE).
+                    In A/A mode every arm mirrors the control's slug, so the
+                    non-control fields are disabled (not just read-only). */}
+                <input
+                  type="text"
+                  list="wasabi-theme-slugs"
+                  value={d.themeSlug}
+                  onChange={(e) => setTheme(i, e.target.value)}
+                  disabled={inactive}
+                  placeholder="tu_lov_uk_19"
+                  spellCheck={false}
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  title={inactive ? "A/A mode — mirrors the control arm's theme" : undefined}
+                  className={`w-full font-mono text-accent/90 placeholder:text-faint ${cellClass}`}
+                  aria-label={`Theme slug for variant ${d.key}`}
+                />
+
+                {/* remove */}
+                <button
+                  type="button"
+                  onClick={() => removeRow(i)}
+                  disabled={drafts.length <= 2}
+                  title={
+                    drafts.length <= 2
+                      ? "An experiment needs at least 2 variants"
+                      : "Remove variant"
+                  }
+                  className="justify-self-end rounded-md border border-line-strong bg-bg px-2 py-1 text-xs text-faint transition-colors hover:border-bad/40 hover:text-bad disabled:cursor-not-allowed disabled:opacity-40 sm:justify-self-auto"
+                  aria-label={`Remove variant ${d.key}`}
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
         </div>
 
         {/* Shared autocomplete for every variant's theme-slug input — suggestions
@@ -502,6 +673,14 @@ export function ExperimentForm({ mode, initial, goalMetricOptions }: Props) {
           </button>
         </div>
       </section>
+
+      {/* --- Live preview (opt-in) --- */}
+      <PreviewSection
+        business={business}
+        variants={variants}
+        show={showPreview}
+        onToggle={() => setShowPreview((v) => !v)}
+      />
 
       {/* --- Launch state (CREATE ONLY) --- */}
       {mode === "create" && (
@@ -624,5 +803,177 @@ function SplitBadge({ total, ok }: { total: number; ok: boolean }) {
       <span aria-hidden="true">{ok ? "✓" : "✗"}</span>
       {total}% / 100%
     </span>
+  );
+}
+
+/**
+ * Goal-metric picker — replaces the bare <select>. A radiogroup of cards (same
+ * idiom as LaunchOption) so each metric's description is visible inline AND on
+ * hover (title), instead of a dropdown that hides what a metric actually
+ * tracks. Every option here is a registry metric backed by a real query, so
+ * there are no "measures nothing" options to guard against.
+ */
+function GoalMetricPicker({
+  options,
+  value,
+  onChange,
+}: {
+  options: GoalMetricOption[];
+  value: string;
+  onChange: (key: string) => void;
+}) {
+  return (
+    <div role="radiogroup" aria-label="Goal metric" className="grid gap-2 sm:grid-cols-2">
+      {options.map((o) => {
+        const selected = o.key === value;
+        return (
+          <button
+            key={o.key}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onChange(o.key)}
+            title={o.description || undefined}
+            className={`flex flex-col items-start gap-0.5 rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
+              selected
+                ? "border-accent/50 bg-accent/10"
+                : "border-line-strong bg-bg hover:border-accent/30"
+            }`}
+          >
+            <span className="flex w-full items-baseline justify-between gap-2">
+              <span className={`text-sm font-medium ${selected ? "text-fg" : "text-muted"}`}>
+                {o.label}
+              </span>
+              <code className="shrink-0 font-mono text-[10px] text-faint">{o.key}</code>
+            </span>
+            {o.description && (
+              <span className="text-[11px] leading-snug text-faint">{o.description}</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Live-preview section — opt-in (it embeds external storefront iframes, so we
+ * don't touch those origins until asked). Shows the control and each variant
+ * rendered with that arm's `?theme=` slug, so an author can eyeball what each
+ * arm serves before the test runs.
+ */
+function PreviewSection({
+  business,
+  variants,
+  show,
+  onToggle,
+}: {
+  business: string;
+  variants: VariantInput[];
+  show: boolean;
+  onToggle: () => void;
+}) {
+  const storefront = storefrontFor(business);
+  return (
+    <section className="rounded-xl border border-line bg-surface">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
+        <div>
+          <h2 className="font-display text-sm font-semibold text-fg">Live preview</h2>
+          <p className="mt-0.5 text-xs text-faint">
+            {storefront
+              ? "Each arm rendered on the storefront with its theme slug."
+              : `No preview URL for ${business} yet.`}
+          </p>
+        </div>
+        {storefront && (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={show}
+            className="rounded-lg border border-line-strong bg-bg px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:border-accent/40 hover:text-accent"
+          >
+            {show ? "Hide preview" : "Show preview"}
+          </button>
+        )}
+      </header>
+
+      {storefront && show && (
+        <div className="space-y-4 px-5 py-4">
+          <p className="text-[11px] text-faint">
+            Loads the live storefront with each arm&apos;s <code className="font-mono">?theme=</code>{" "}
+            slug — a slug the storefront doesn&apos;t recognise falls back to its default theme.
+            Previews are not saved with the test.
+          </p>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {variants.map((v, i) => (
+              <PreviewFrame key={i} business={business} variant={v} storefrontBlocked={storefront.framing === "block"} />
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** One arm's preview: an iframe when the storefront allows framing, otherwise
+ *  an open-in-new-tab link. Labelled with the arm key, control/variant, and the
+ *  theme slug so it's unambiguous which arm is which. */
+function PreviewFrame({
+  business,
+  variant,
+  storefrontBlocked,
+}: {
+  business: string;
+  variant: VariantInput;
+  storefrontBlocked: boolean;
+}) {
+  const url = previewUrlFor(business, variant.themeSlug);
+  const role = variant.isControl ? "control" : "variant";
+  return (
+    <div className="overflow-hidden rounded-lg border border-line-strong bg-bg">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2">
+        <span className="flex flex-wrap items-center gap-2 text-[11px]">
+          <code className="font-mono text-fg">{variant.key || "—"}</code>
+          <span
+            className={`rounded-full border px-1.5 py-0.5 font-medium ${
+              variant.isControl
+                ? "border-info/40 bg-info/10 text-info"
+                : "border-line-strong text-muted"
+            }`}
+          >
+            {role}
+          </span>
+          <code className="font-mono text-accent/90">{variant.themeSlug || "no slug"}</code>
+        </span>
+        {url && (
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 text-[11px] font-medium text-muted transition-colors hover:text-accent"
+          >
+            Open ↗
+          </a>
+        )}
+      </div>
+      {!url ? (
+        <p className="px-3 py-6 text-center text-[11px] text-faint">
+          {variant.themeSlug ? "No preview URL for this business." : "Add a theme slug to preview this arm."}
+        </p>
+      ) : storefrontBlocked ? (
+        <p className="px-3 py-6 text-center text-[11px] text-faint">
+          This storefront blocks embedding — use “Open ↗” to preview in a new tab.
+        </p>
+      ) : (
+        <iframe
+          src={url}
+          title={`Preview of ${variant.key} (${role}) — ${variant.themeSlug}`}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          className="h-[420px] w-full bg-white"
+        />
+      )}
+    </div>
   );
 }

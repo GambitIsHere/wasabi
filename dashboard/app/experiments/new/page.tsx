@@ -50,7 +50,7 @@ export default async function NewExperimentPage({
   const [sp, metrics] = await Promise.all([searchParams, getMetrics()]);
   const goalMetricOptions: GoalMetricOption[] = metrics
     .filter((m) => m.isGoal)
-    .map((m) => ({ key: m.key, label: m.label }));
+    .map((m) => ({ key: m.key, label: m.label, description: m.description }));
   const str = (v: string | string[] | undefined) =>
     (Array.isArray(v) ? v[0] : v) ?? "";
   const initial = buildInitial({
@@ -91,7 +91,12 @@ export default async function NewExperimentPage({
         )}
       </div>
 
-      <ExperimentForm mode="create" initial={initial} goalMetricOptions={goalMetricOptions} />
+      <ExperimentForm
+        mode="create"
+        initial={initial}
+        goalMetricOptions={goalMetricOptions}
+        initialUniqueId={ticket}
+      />
     </div>
   );
 }
