@@ -25,6 +25,7 @@ import {
 import type { ExperimentInput, VariantInput } from "@/lib/mgmt";
 import { previewUrlFor, storefrontFor } from "@/lib/storefronts";
 import { createExperiment, updateExperiment } from "@/app/actions";
+import { Spinner } from "@/components/Spinner";
 
 /** One goal-metric option: `key` is what's stored, `label` is what's shown, and
  *  `description` is what it tracks (surfaced as a per-metric hover + inline in
@@ -774,11 +775,20 @@ export function ExperimentForm({ mode, initial, goalMetricOptions, initialUnique
             disabled={!canSubmit}
             className="btn-primary px-5 py-2.5"
           >
-            {pending
-              ? "Saving…"
-              : mode === "create"
-                ? "Create experiment"
-                : "Save changes"}
+            {pending ? (
+              <>
+                <Spinner
+                  variant="bars"
+                  label="Saving"
+                  style={{ color: "var(--color-bg)", height: "0.9em" }}
+                />
+                Saving…
+              </>
+            ) : mode === "create" ? (
+              "Create experiment"
+            ) : (
+              "Save changes"
+            )}
           </button>
           <button
             type="button"

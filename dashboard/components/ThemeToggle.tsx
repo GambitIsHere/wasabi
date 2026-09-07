@@ -100,7 +100,7 @@ export function ThemeToggle() {
       onClick={cycle}
       aria-label={`Theme: ${NAME[choice]}. Activate to change.`}
       title={`Theme — ${NAME[choice]}`}
-      className="inline-flex items-center justify-center rounded-md border border-line bg-surface px-2 py-1 font-mono text-sm leading-none text-faint transition-colors duration-[120ms] ease-smooth hover:border-line-strong hover:text-accent"
+      className="inline-flex items-center justify-center rounded-full border border-line bg-surface px-2.5 py-1.5 font-mono text-sm leading-none text-faint transition-colors duration-[120ms] ease-smooth hover:border-accent hover:text-accent"
     >
       <span aria-hidden="true">{GLYPH[choice]}</span>
       <span className="sr-only">{NAME[choice]} theme</span>

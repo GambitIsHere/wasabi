@@ -38,7 +38,11 @@ export function SiteNav({ canManage = false }: { canManage?: boolean }) {
             {l.label}
             {active && (
               <span
-                className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-accent"
+                className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-neon"
+                style={{
+                  boxShadow:
+                    "0 0 10px color-mix(in srgb, var(--color-neon) 60%, transparent)",
+                }}
                 aria-hidden="true"
               />
             )}

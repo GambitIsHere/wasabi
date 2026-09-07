@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { JetBrains_Mono } from "next/font/google";
+import { DM_Sans, DM_Mono } from "next/font/google";
 import { SiteNav } from "@/components/SiteNav";
 import { UnknownWorkspace } from "@/components/UnknownWorkspace";
 import { auth } from "@/auth";
@@ -8,12 +8,20 @@ import { roleAtLeast } from "@/lib/roles";
 import { resolveTenantOrgId } from "@/lib/tenant";
 import "./globals.css";
 
-// Cockpit type system — a native system-UI sans for everything readable (zero
-// load, operator-tool feel; set as --font-sans in globals.css) and JetBrains
-// Mono, the single webfont, for every key, slug, ID and tabular number.
-const mono = JetBrains_Mono({
+// Signal type system — DM Sans carries everything readable (UI, headings,
+// body; set as --font-sans in globals.css) and DM Mono carries every key,
+// slug, ID, label, eyebrow and tabular number (--font-mono). Both load via
+// next/font. DM Sans is a variable font (all weights); DM Mono ships fixed
+// weights, so 400/500 are requested explicitly.
+const sans = DM_Sans({
   subsets: ["latin"],
-  variable: "--font-jetbrains-mono",
+  variable: "--font-dm-sans",
+  display: "swap",
+});
+const mono = DM_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-dm-mono",
   display: "swap",
 });
 
@@ -59,7 +67,11 @@ export default async function RootLayout({
   const canManageOrg = Boolean(session?.role && roleAtLeast(session.role, "admin"));
 
   return (
-    <html lang="en" className={mono.variable} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${sans.variable} ${mono.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
       </head>
@@ -68,9 +80,18 @@ export default async function RootLayout({
         <div className="h-px w-full bg-line" aria-hidden="true" />
         <header className="sticky top-0 z-20 border-b border-line bg-bg/80 backdrop-blur-md">
           <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
-            <Link href="/" className="group flex items-center gap-3">
+            <Link href="/" className="group flex items-center gap-2.5">
+              {/* Signal brand mark — a glowing neon dot, the single warm pop. */}
+              <span
+                aria-hidden="true"
+                className="size-2.5 shrink-0 rounded-full bg-neon"
+                style={{
+                  boxShadow:
+                    "0 0 0 4px color-mix(in srgb, var(--color-neon) 18%, transparent), 0 0 14px color-mix(in srgb, var(--color-neon) 60%, transparent)",
+                }}
+              />
               <span className="font-display text-xl font-semibold tracking-tight text-fg transition-colors group-hover:text-accent">
-                Optimiser<span className="text-accent">.Pro</span>
+                Optimiser<span className="text-neon">.</span>Pro
               </span>
               <span className="hidden font-mono text-[10px] uppercase tracking-[0.18em] text-accent sm:inline">
                 Experimentation
