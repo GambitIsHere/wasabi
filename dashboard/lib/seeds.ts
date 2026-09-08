@@ -163,6 +163,29 @@ export const SEED_METRICS: MetricInput[] = [
     displayOrder: 30,
     enabled: true,
   },
+  // Event-based conversion goal — the count of `purchase` events captured per
+  // arm from the storefront /thank-you ping (see app/api/capture + lib/events.ts,
+  // and the GP-603 storefront PR that posts event="purchase" with experiment_key
+  // + variant). Backed by VariantRow.purchases, which the results pipeline fills
+  // from the local `event` table (lib/purchase-results.ts) — NOT Metabase, NOT
+  // gAdsConversion. This is the honest, source-backed alternative to the ads
+  // `conversions` goal for a split-URL test whose arms don't map to real
+  // global-api themes (GP-603): the captured purchases ARE the conversion.
+  {
+    key: "purchases",
+    label: "Purchases",
+    description:
+      "Completed purchases captured per arm from the storefront thank-you event (event.event='purchase'). Event-based — distinct from the Google Ads Conversions metric.",
+    kind: "sum",
+    direction: "higher_is_better",
+    unit: "count",
+    valueField: "purchases",
+    decimals: 0,
+    isGoal: true,
+    showInTable: true,
+    displayOrder: 35,
+    enabled: true,
+  },
   {
     key: "apps_acquired",
     label: "Apps acquired",
@@ -183,8 +206,12 @@ export const SEED_METRICS: MetricInput[] = [
   // ad_conversions = rows WHERE converted. Both map to real VariantRow fields
   // (adClicks / adConversions), so they compute for any theme that has Google
   // Ads conversion rows; a theme with none reads null (blank), never a fake 0.
-  // showInTable is false so they're selectable as a goal WITHOUT adding new
-  // columns to the results table (the "Clicks" column already covers ad volume).
+  // `conversions` is shown in the table so it rides alongside the event-based
+  // `purchases` goal as a visible SECONDARY metric (GP-603 tracks both — the
+  // captured purchases decide the winner, ad-conversions stay in view). It
+  // blanks ("—") on an arm with no ad data rather than showing a fake 0.
+  // `conversion_rate` stays goal-selectable-only (showInTable false) — the
+  // "Clicks" column already covers ad volume and a rate needs both fields.
   {
     key: "conversions",
     label: "Conversions",
@@ -196,7 +223,7 @@ export const SEED_METRICS: MetricInput[] = [
     valueField: "adConversions",
     decimals: 0,
     isGoal: true,
-    showInTable: false,
+    showInTable: true,
     displayOrder: 45,
     enabled: true,
   },

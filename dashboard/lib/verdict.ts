@@ -88,6 +88,15 @@ export interface VariantRow {
   revenueNative?: number;
   /** revenueNative ÷ apps acquired. */
   revPerAcquiredNative?: number;
+
+  // --- Event-based (NOT Metabase) — the assignment/conversion plane, read from
+  //     the local `event` table, never the shared payments DB. Optional so
+  //     Metabase-only callers + the verdict stats keep working unchanged. ---
+  /** Completed purchases captured for this arm — COUNT of `event`='purchase'
+   *  rows (the storefront /thank-you conversion ping, see #223). Left undefined
+   *  when the experiment isn't purchase-wired, so a metric reading it blanks
+   *  rather than showing a fabricated 0. */
+  purchases?: number;
 }
 
 /** A two-proportion z-test of one variant's rate vs control's (ratio metrics only). */

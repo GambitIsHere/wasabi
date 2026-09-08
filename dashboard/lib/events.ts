@@ -57,6 +57,19 @@ export function startOfTodayIso(): string {
  *  `conversion` = any other storefront ping (kept, but the money truth is Metabase). */
 export type EventKind = "assignment" | "conversion";
 
+/**
+ * The event NAME a storefront posts to /api/capture when a purchase completes —
+ * the /thank-you conversion ping. Reconciled EXACTLY with the storefront that
+ * fires it: the Top Up GP-603 proxy posts `event: "purchase"` with
+ * `properties.experiment_key` + `properties.variant` (see that repo's
+ * lib/experiments/gp-603.ts recordGp603Conversion). The capture route's
+ * classify() maps this name to kind `conversion` (it contains no "assign"), so
+ * a purchase lands as { event: "purchase", kind: "conversion" }. This constant
+ * is the single source of truth for that name on the tool side — the goal
+ * metric `purchases` counts exactly these rows (see purchaseCountsByVariant).
+ */
+export const PURCHASE_EVENT_NAME = "purchase";
+
 /** One row to persist, already parsed from the capture wire body. */
 export interface EventToPersist {
   /** UTC ISO-8601 timestamp. Callers pass the wire timestamp or now(). */
@@ -337,4 +350,38 @@ export async function experimentWiring(key: string): Promise<ExperimentWiring> {
     GROUP BY variant, kind
   `) as unknown as WiringEventGroup[];
   return foldWiringRows(rows);
+}
+
+/**
+ * Per-variant COUNT of captured `purchase` events for one experiment — the data
+ * plane behind the `purchases` goal metric (lib/seeds.ts). Reads the SAME local
+ * `event` table experimentWiring() does, but filters to event = PURCHASE_EVENT_NAME
+ * specifically (not merely kind = 'conversion') so it counts ONLY the storefront
+ * /thank-you purchase ping, never some other future conversion event — the exact
+ * name the storefront posts (see PURCHASE_EVENT_NAME above). NULL-variant rows are
+ * dropped: a purchase with no arm attribution can't be assigned to a variant.
+ *
+ * Tenant-scoped by project_id, like every other read here. Returns a plain
+ * { variant: count } map (only variants that have at least one purchase);
+ * lib/purchase-results.ts decides how to fold that onto the experiment's arms.
+ * Empty store → {}.
+ */
+export async function purchaseCountsByVariant(
+  experimentKey: string,
+): Promise<Record<string, number>> {
+  await createSchema();
+  const sql = getSql();
+  const projectId = await getCurrentProjectId();
+  const rows = (await sql`
+    SELECT variant, COUNT(*)::int AS count
+    FROM event
+    WHERE experiment_key = ${experimentKey}
+      AND event = ${PURCHASE_EVENT_NAME}
+      AND variant IS NOT NULL
+      AND project_id = ${projectId}
+    GROUP BY variant
+  `) as unknown as Array<{ variant: string; count: number }>;
+  const out: Record<string, number> = {};
+  for (const r of rows) out[r.variant] = Number(r.count) || 0;
+  return out;
 }

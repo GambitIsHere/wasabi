@@ -431,4 +431,21 @@ describe("SEED_METRICS — shape + real-data backing", () => {
     const def = SEED_METRICS.find((m) => m.key === "conversion_rate")!;
     expect(metricValue(seedToDef(def), row({ adConversions: 0, adClicks: 0 }))).toBeNull();
   });
+
+  it("Purchases (sum) is a goal that reads the event-based purchases field directly", () => {
+    const def = SEED_METRICS.find((m) => m.key === "purchases")!;
+    expect(def.isGoal).toBe(true);
+    expect(def.direction).toBe("higher_is_better");
+    expect(def.valueField).toBe("purchases");
+    expect(metricValue(seedToDef(def), row({ purchases: 42 }))).toBe(42);
+  });
+
+  it("Purchases resolves a genuine 0, but is null (blank) when the arm carries no purchases field", () => {
+    const def = SEED_METRICS.find((m) => m.key === "purchases")!;
+    // A purchase-active arm that captured zero — a real measured zero.
+    expect(metricValue(seedToDef(def), row({ purchases: 0 }))).toBe(0);
+    // Not purchase-wired at all — the field is unset, so it blanks rather than
+    // fabricating a 0 (honesty guardrail, same as the ads metrics above).
+    expect(metricValue(seedToDef(def), row())).toBeNull();
+  });
 });

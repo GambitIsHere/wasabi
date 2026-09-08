@@ -69,6 +69,11 @@ export const VARIANT_ROW_NUMERIC_FIELDS = [
   "breakEvenCacGbp",
   "revenueNative",
   "revPerAcquiredNative",
+  // Event-based (NOT Metabase): the count of captured `purchase` events for the
+  // arm, read from the local `event` table — not the shared payments DB. Distinct
+  // from adConversions (Google Ads). Populated by the results pipeline before the
+  // registry resolves the "purchases" goal metric off it (lib/purchase-results.ts).
+  "purchases",
 ] as const satisfies readonly (keyof VariantRow)[];
 
 export type VariantRowNumericField = (typeof VARIANT_ROW_NUMERIC_FIELDS)[number];

@@ -39,15 +39,21 @@
 //   the storefront reads. VARIANT PRIMARY KEY is (experiment_key, key), never
 //   theme_slug (lib/db.ts), so nothing here needs the slug to be unique.
 //
-//   RESULTS: the goal metric is "conversions" (lib/seeds.SEED_METRICS — the
-//   Conversions goal added by PR #9, backed by VariantRow.adConversions /
-//   gAdsConversion.converted). Ad-conversion attribution joins by theme slug,
-//   so a per-arm result appears once the storefront tags its ad-conversion
-//   rows with the same &var= value it renders; until then each arm reads the
-//   empty state, which the results table renders cleanly — the same
-//   "assignment side proves out first, payment/ads side fills in" pattern as
-//   the TU A/A and the GP-600 PDF split-URL pilot. The ASSIGNMENT side is live
-//   from the first visitor via /api/capture (variant key off &var=).
+//   RESULTS: the goal metric is "purchases" (lib/seeds.SEED_METRICS), the
+//   EVENT-BASED conversion goal — backed by VariantRow.purchases, which the
+//   results pipeline fills from the local `event` table (the storefront's
+//   /thank-you `purchase` ping, keyed on this same experiment key + the &var=
+//   variant; see lib/events.purchaseCountsByVariant + lib/purchase-results.ts).
+//   This is deliberate: GP-603's arms map to their OWN variant value, not a
+//   real global-api Theme, so the ads `conversions` goal (gAdsConversion, joined
+//   by theme slug) would read the empty state forever — a dead goal. The
+//   captured purchases ARE the conversion here, so they decide the winner.
+//   "conversions" (ad-conversions) stays a tracked, visible SECONDARY metric
+//   in the results table (lib/seeds — showInTable), so once the arm tags its
+//   ad-conversion rows both reads sit side by side. The ASSIGNMENT + purchase
+//   sides are live from the first visitor via /api/capture (variant key off
+//   &var=); the payments/ads side fills in later — same "assignment proves out
+//   first" pattern as the TU A/A and the GP-600 PDF split-URL pilot.
 //
 // WHY NOT the app's own create path (lib/store.insertExperiment): that resolves
 // the target project through getCurrentProjectId() → getCurrentTenant() →
@@ -107,11 +113,14 @@ import {
 // active: true — LIVE, so /api/decide assigns from the first visitor.
 // youtrackTicket: "GP-603" — stored on the experiment row (PR #9 column),
 // surfaced as the "Ticket ↗" link on the detail page.
+// goalMetric: "purchases" — the EVENT-BASED goal (captured /thank-you purchase
+// pings per arm), NOT the ads "conversions" goal: this test's arms aren't real
+// themes, so ad-conversions would never resolve. See the RESULTS note above.
 const GP_603: ExperimentInput = {
   name: "TU — Promo banner display style (split-URL)",
   key: "gp-603",
   business: "Top Up",
-  goalMetric: "conversions",
+  goalMetric: "purchases",
   startDate: "2026-09-07",
   youtrackTicket: "GP-603",
   active: true,

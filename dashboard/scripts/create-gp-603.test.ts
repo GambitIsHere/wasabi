@@ -1,8 +1,9 @@
 // ============================================================================
 // create-gp-603.ts — the GP-603 registration must be locked to its contract:
 // the immutable key, the five exact arm values, an even 20% split, the control
-// arm, the "conversions" goal, the split-URL theme convention, and the prod
-// guards. If any of these drift the storefront &var= contract breaks silently.
+// arm, the "purchases" (event-based) goal, the split-URL theme convention, and
+// the prod guards. If any of these drift the storefront &var= contract breaks
+// silently.
 // ----------------------------------------------------------------------------
 // A static source scan, not an execution test (same convention as
 // migrate-tenancy.test.ts / migrate-youtrack-ticket.test.ts): the script runs
@@ -28,8 +29,11 @@ describe("create-gp-603 experiment definition", () => {
     expect(SCRIPT).toMatch(/business:\s*"Top Up"/);
   });
 
-  it('uses the "conversions" goal metric (the PR #9 Conversions / adConversions goal)', () => {
-    expect(SCRIPT).toMatch(/goalMetric:\s*"conversions"/);
+  it('uses the event-based "purchases" goal metric — the captured /thank-you purchase pings, not the dead ads goal', () => {
+    expect(SCRIPT).toMatch(/goalMetric:\s*"purchases"/);
+    // Guard against a regression back to the ads "conversions" goal, which
+    // would read the empty state forever for this split-URL test's arms.
+    expect(SCRIPT).not.toMatch(/goalMetric:\s*"conversions"/);
   });
 
   it("stores the GP-603 YouTrack ticket", () => {
