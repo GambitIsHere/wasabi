@@ -36,8 +36,9 @@ export async function GET(
   }
 
   // Cache ONLY the expensive half — the live Metabase read — keyed so any
-  // structural edit (a variant slug, the cohort start) busts it at once
-  // (resultsCacheKeyParts), while a plain rename reuses it. Only the SUCCESS
+  // structural edit (a variant slug, the cohort start, a control reassignment,
+  // a variant↔slug remap) busts it at once (resultsCacheKeyParts), while a plain
+  // rename reuses it. Only the SUCCESS
   // path is cached: an unavailable outcome throws, so unstable_cache stores
   // nothing and a transient Metabase blip (or a timeout — see lib/metabase.ts)
   // self-heals on the next request rather than being pinned for the whole
