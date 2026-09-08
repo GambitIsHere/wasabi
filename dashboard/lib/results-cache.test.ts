@@ -1,10 +1,12 @@
 // ============================================================================
 // results-cache.ts — the cache key for an experiment's live Metabase P&L read.
 // ----------------------------------------------------------------------------
-// The key must bust when the query's INPUTS change (theme slugs, cohort start)
-// and stay stable otherwise — so a plain rename reuses the cache while a slug or
-// start-date edit forces a fresh read. These tests pin exactly that contract;
-// see app/api/experiments/[key]/results/route.ts for how the key is used.
+// The key must bust when anything the cached VALUE depends on changes — the
+// theme slugs and cohort start the query reads, plus the controlVariant and
+// variant→slug mapping that stamp each row's `variant` label and `isControl`
+// flag (lib/metabase.ts runResults) — and stay stable otherwise, so a plain
+// rename reuses the cache. These tests pin exactly that contract; see
+// app/api/experiments/[key]/results/route.ts for how the key is used.
 // ============================================================================
 import { describe, expect, it } from "vitest";
 import { resultsCacheKeyParts } from "@/lib/results-cache";
@@ -28,16 +30,17 @@ function experiment(overrides: Partial<RegisteredExperiment> = {}): RegisteredEx
 }
 
 describe("resultsCacheKeyParts", () => {
-  it("includes the namespace, key, start date and sorted slugs", () => {
+  it("includes the namespace, key, start date, control variant and sorted variant:slug pairs", () => {
     expect(resultsCacheKeyParts(experiment())).toEqual([
       "experiment-results",
       "tu-billing-uk",
       "2026-09-01",
-      "tu_lov_uk,tu_lov_uk_19",
+      "control",
+      "control:tu_lov_uk,variant_19:tu_lov_uk_19",
     ]);
   });
 
-  it("is invariant to variant order (slugs are sorted)", () => {
+  it("is invariant to variant order (pairs are sorted)", () => {
     const reordered = experiment({
       resultsThemeMap: [
         { variant: "variant_19", themeSlug: "tu_lov_uk_19" },
@@ -78,7 +81,28 @@ describe("resultsCacheKeyParts", () => {
       "experiment-results",
       "tu-billing-uk",
       "2026-09-01",
-      "tu_lov_uk",
+      "control",
+      "control:tu_lov_uk",
     ]);
+  });
+
+  it("busts when the control variant is reassigned (slugs and start unchanged)", () => {
+    // Same theme slugs and cohort start, but the baseline arm flips from control
+    // to variant_19. The cached rows' `isControl` flags derive from this, so the
+    // key must change — the slug-only key wrongly reused the old verdict here.
+    const reassigned = experiment({ controlVariant: "variant_19" });
+    expect(resultsCacheKeyParts(reassigned)).not.toEqual(resultsCacheKeyParts(experiment()));
+  });
+
+  it("busts on a variant↔slug remap (same slug set, swapped labels)", () => {
+    // The set of slugs is identical, so a slug-only key would not budge — but the
+    // per-row `variant` label now points at a different slug, so the key must bust.
+    const remapped = experiment({
+      resultsThemeMap: [
+        { variant: "control", themeSlug: "tu_lov_uk_19" },
+        { variant: "variant_19", themeSlug: "tu_lov_uk" },
+      ],
+    });
+    expect(resultsCacheKeyParts(remapped)).not.toEqual(resultsCacheKeyParts(experiment()));
   });
 });
