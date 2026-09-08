@@ -322,4 +322,45 @@ async function doCreateSchema(): Promise<void> {
   // request (via lib/metrics.ts's getMetrics(), short-cached) — this index
   // keeps that a single index scan instead of a sort.
   await sql`CREATE INDEX IF NOT EXISTS metric_display_order_idx ON metric (display_order, key)`;
+
+  // experiment_build_ticket — the roadmap→YouTrack loop's LEDGER. One row per
+  // YouTrack build ticket the tool has created (or is creating) for a suggested
+  // experiment arm that wasn't built yet in the storefront. It exists for ONE
+  // reason: re-promote idempotency. Promoting the same backlog ticket + theme
+  // slug twice must never file a second YouTrack issue, so the UNIQUE index on
+  // (org_id, source_ticket, theme_slug) is the hard guard, and the write path
+  // (lib/build-ticket-store.ts) claims a row here BEFORE it POSTs to YouTrack.
+  //
+  // org_id follows the tenancy seam's pattern (TEXT NOT NULL REFERENCES
+  // organization(id), no DEFAULT — a forgotten column fails LOUD rather than
+  // mis-attributing a row; see scripts/migrate-tenancy.ts's I9 note). Unlike the
+  // pre-tenancy tables that script ALTERs, this table is BRAND NEW and empty on
+  // every DB, so it is born complete here — the exact reasoning membership /
+  // organization / project use above (additive CREATE … IF NOT EXISTS is safe on
+  // the automatic cold-start path; an ALTER on a populated table is not). No
+  // migrate-tenancy job is needed for it, and the write path stays inert until
+  // its token + kill-switch are set (lib/youtrack-write.ts), so this table simply
+  // sits empty until the loop is enabled.
+  //
+  // status: 'creating' once the slot is claimed, 'created' once the YouTrack
+  // issue is filed (created_ticket then holds its readable id, e.g. GP-742). A
+  // 'creating' row whose POST later failed is deleted by the write path so a
+  // retry can re-claim the slot.
+  await sql`
+    CREATE TABLE IF NOT EXISTS experiment_build_ticket (
+      id             TEXT PRIMARY KEY,
+      org_id         TEXT NOT NULL REFERENCES organization(id),
+      source_ticket  TEXT NOT NULL,
+      theme_slug     TEXT NOT NULL,
+      business       TEXT NOT NULL DEFAULT '',
+      project        TEXT NOT NULL DEFAULT '',
+      summary        TEXT NOT NULL DEFAULT '',
+      created_ticket TEXT,
+      status         TEXT NOT NULL DEFAULT 'creating',
+      created_by     TEXT,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  // The idempotency guard: one build ticket per (org, source ticket, arm slug).
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS experiment_build_ticket_dedupe_idx ON experiment_build_ticket (org_id, source_ticket, theme_slug)`;
 }

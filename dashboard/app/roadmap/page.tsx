@@ -4,6 +4,11 @@ import { listRoadmap } from "@/lib/roadmap-store";
 import { reconcileRoadmapMetadata } from "@/lib/roadmap-reconcile";
 import { LANE } from "@/lib/roadmap-format";
 import { EditableRunway } from "@/components/roadmap/EditableRunway";
+import { SuggestedExperiments } from "@/components/roadmap/SuggestedExperiments";
+import {
+  getExperimentSuggestions,
+  type Suggestions,
+} from "@/lib/experiment-suggestions";
 import {
   TESTED_ELEMENTS,
   VERDICTS,
@@ -64,6 +69,16 @@ export default async function RoadmapPage() {
   const archiveHref = (sourceId: string) =>
     keyBySourceId[sourceId] ? `/archive/${keyBySourceId[sourceId]}` : "/archive";
 
+  // Suggested experiments — the YouTrack A/B backlog surfaced onto the runway
+  // (reuses the backlog scan; see lib/experiment-suggestions.ts). Best-effort:
+  // a YouTrack or DB hiccup renders no section rather than breaking the page.
+  let suggestions: Suggestions | null = null;
+  try {
+    suggestions = await getExperimentSuggestions({ open: true });
+  } catch {
+    suggestions = null;
+  }
+
   return (
     <div className="space-y-10">
       <section className="space-y-3">
@@ -78,6 +93,8 @@ export default async function RoadmapPage() {
           itself — the pilot. Week&nbsp;1 = kickoff.
         </p>
       </section>
+
+      {suggestions && <SuggestedExperiments data={suggestions} />}
 
       {/* The runway (drag-and-drop), the tested-elements table (passed as children,
           rendered between), and the order-per-repo list all live inside

@@ -8,8 +8,35 @@
 // exercise the `@/` path alias under Vitest.
 // ============================================================================
 import { describe, expect, it } from "vitest";
-import { suggestedName, suggestedThemeSlug } from "@/lib/backlog";
+import { suggestedName, suggestedThemeSlug, isExperiment } from "@/lib/backlog";
 import { THEME_SLUG_RE } from "@/lib/mgmt";
+
+describe("isExperiment — the scan filter", () => {
+  const keep = (summary: string) => expect(isExperiment({ summary })).toBe(true);
+  const drop = (summary: string) => expect(isExperiment({ summary })).toBe(false);
+
+  it("keeps summaries with a real testing signal", () => {
+    keep("TU - A/B test the header");
+    keep("PDF | run the VWO split test");
+    keep("AC: new theme experiment for check-in");
+    keep("AS - add a variant of the hero");
+    keep("Split test the pricing page");
+  });
+
+  it("drops noise the keyword net catches but that aren't experiments", () => {
+    drop("TU - update test credentials for staging");
+    drop("[chore] bump deps");
+    drop("hotfix: payment 500 on retry");
+    drop("DB migration for the theme table");
+    drop("Investigate a spike in declines");
+    drop("Sentry monitoring for the funnel");
+  });
+
+  it("drops a plain ticket with no testing signal at all", () => {
+    drop("TU - refresh the FAQ copy");
+    drop("Add a phone field to the landing form");
+  });
+});
 
 describe("suggestedName", () => {
   it("strips a leading business prefix + hyphen separator", () => {
