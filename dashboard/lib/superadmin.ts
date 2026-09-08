@@ -114,8 +114,11 @@ export async function requireSuperAdmin(): Promise<SuperAdminResult> {
 
   const allowlist = parseSuperAdminAllowlist(process.env[ALLOWLIST_ENV]);
   if (allowlist.length > 0) {
-    // Explicit operator allowlist configured → it is the whole gate.
-    if (allowlist.includes(dbUser.email)) {
+    // Explicit operator allowlist configured → it is the whole gate. Route the
+    // match through the module's own tested helper (which normalises both sides)
+    // rather than re-implementing the check inline, so the gate can never
+    // silently diverge from isEmailAllowlisted.
+    if (isEmailAllowlisted(dbUser.email, process.env[ALLOWLIST_ENV])) {
       return { ok: true, userId: dbUser.id, email: dbUser.email, via: "allowlist" };
     }
     return FORBIDDEN;

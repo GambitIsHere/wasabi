@@ -162,6 +162,39 @@ describe("requireSuperAdmin — allowlist is authoritative when configured", () 
   });
 });
 
+describe("requireSuperAdmin — allowlist path runs through isEmailAllowlisted", () => {
+  // The gate's own real path (not just the pure helper): the follow-up to #14
+  // routes the allowlist branch through isEmailAllowlisted, so requireSuperAdmin
+  // can never silently diverge from that tested helper.
+  it("an allowlisted active user passes (via allowlist)", async () => {
+    vi.stubEnv("WASABI_SUPERADMIN_EMAILS", EMAIL);
+    mockAuth.mockResolvedValue(session());
+    mockFindUserByEmail.mockResolvedValue(user());
+    await expect(requireSuperAdmin()).resolves.toMatchObject({ ok: true, via: "allowlist" });
+  });
+
+  it("🔴 a non-allowlisted active user is refused even when they would be a Sanjow owner", async () => {
+    // Allowlist is authoritative: a would-be Sanjow owner not on it is refused,
+    // and the membership fallback is never consulted.
+    vi.stubEnv("WASABI_SUPERADMIN_EMAILS", "ops@sanjow.com");
+    mockAuth.mockResolvedValue(session());
+    mockFindUserByEmail.mockResolvedValue(user());
+    mockGetMembership.mockResolvedValue(membership(SANJOW, "owner"));
+    await expect(requireSuperAdmin()).resolves.toMatchObject({ ok: false, status: 403 });
+    expect(mockGetMembership).not.toHaveBeenCalled();
+  });
+
+  it("matches case-insensitively through the gate (mixed-case account email, lowercase allowlist)", async () => {
+    // A mixed-case account email must still clear a lowercase allowlist — the
+    // pre-fix inline `allowlist.includes(dbUser.email)` compared the lowercased
+    // list against a non-lowercased email and would have missed this.
+    vi.stubEnv("WASABI_SUPERADMIN_EMAILS", "alice@sanjow.com");
+    mockAuth.mockResolvedValue(session({ user: { email: "Alice@Sanjow.com" } }));
+    mockFindUserByEmail.mockResolvedValue(user({ email: "Alice@Sanjow.com" }));
+    await expect(requireSuperAdmin()).resolves.toMatchObject({ ok: true, via: "allowlist" });
+  });
+});
+
 describe("requireSuperAdmin — fallback: active owner/admin of the Sanjow org", () => {
   it("a Sanjow owner is authorized (via sanjow-admin)", async () => {
     mockAuth.mockResolvedValue(session());
