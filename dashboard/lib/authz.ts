@@ -53,6 +53,19 @@ const FORBIDDEN: RequireRoleResult = {
 };
 
 /**
+ * The synthetic caller id `requireRole` returns from the local-dev
+ * `WASABI_DEV_NO_AUTH` bypass when there is NO real session to attribute to.
+ * It is NOT a row in the `user` table, so any Server Action that writes
+ * `gate.userId` into a column with a foreign key to `user(id)` MUST special-case
+ * it (fall soft to `null` on a nullable column, say) rather than pass it
+ * through — otherwise Postgres rejects the write with a foreign-key violation.
+ * Compare against THIS constant, never a bare `"dev-no-auth"` string literal.
+ * Only ever appears in local dev — the bypass that produces it refuses to boot
+ * in a deployed environment (see middleware.ts's WASABI_DEV_NO_AUTH guard).
+ */
+export const DEV_NO_AUTH_USER_ID = "dev-no-auth";
+
+/**
  * Authorize the current request for at least `minimum` role in the caller's
  * org, re-deriving everything from the database (never the JWT). Returns a
  * discriminated result so the caller decides the transport — a route maps
@@ -64,22 +77,38 @@ const FORBIDDEN: RequireRoleResult = {
  * Metabase). See this file's header for the migration-safety behaviour.
  */
 export async function requireRole(minimum: MembershipRole): Promise<RequireRoleResult> {
+  // Resolve the live session ONCE, up front: both the local-dev bypass below and
+  // the real authorization path need it. auth() returns null when there's no
+  // session, and is safe to call in local dev — Auth.js is always initialized,
+  // even with the gate bypassed (AUTH_SECRET is required regardless — see
+  // LOCAL-DEV.md).
+  const session = await auth();
+  const email = session?.user?.email;
+
   // Local dev bypass — mirrors middleware.ts's WASABI_DEV_NO_AUTH gate bypass so
-  // the authN gate and this authZ gate never disagree. When the SSO gate is
-  // skipped for local dev there's no session to derive a role from, so authorize
-  // as owner. Guarded to local dev the SAME way middleware.ts is — it throws at
-  // boot if WASABI_DEV_NO_AUTH is ever "1" with VERCEL set or NODE_ENV=production
-  // — so this branch can never grant access in a deployed environment.
+  // the authN gate and this authZ gate never disagree. Guarded to local dev the
+  // SAME way middleware.ts is — it throws at boot if WASABI_DEV_NO_AUTH is ever
+  // "1" with VERCEL set or NODE_ENV=production — so this branch can never grant
+  // access in a deployed environment.
+  //
+  // Skipping the SSO gate usually means there's no session to derive a role
+  // from, so we synthesize an owner grant. But a developer who registered and
+  // bootstrapped a REAL account locally (see LOCAL-DEV.md) still has a session
+  // even with the flag on — prefer it, and fall through to the normal
+  // DB-derived path below so the write attributes to their real `user.id` row.
+  // DEV_NO_AUTH_USER_ID has no `user` row and breaks any foreign key to
+  // `user(id)`, so fall back to it ONLY when there is genuinely no session.
   if (
     process.env.WASABI_DEV_NO_AUTH === "1" &&
     !process.env.VERCEL &&
     process.env.NODE_ENV !== "production"
   ) {
-    return { ok: true, userId: "dev-no-auth", orgId: SANJOW_ORG_ID, role: "owner" };
+    if (!email) {
+      return { ok: true, userId: DEV_NO_AUTH_USER_ID, orgId: SANJOW_ORG_ID, role: "owner" };
+    }
+    // A real local session exists — fall through and authorize it as itself.
   }
 
-  const session = await auth();
-  const email = session?.user?.email;
   if (!email) {
     // Behind the middleware gate this should be unreachable, but authorize
     // independently rather than assume the gate ran (defence in depth).

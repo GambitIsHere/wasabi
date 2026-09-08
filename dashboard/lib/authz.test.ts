@@ -7,7 +7,7 @@
 // credentials-auth.test.ts); lib/roles + lib/domain-restriction stay real
 // (pure).
 // ============================================================================
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "next-auth";
 
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
@@ -18,7 +18,7 @@ vi.mock("@/lib/membership", () => ({
   findOrCreateMembership: vi.fn(),
 }));
 vi.mock("@/lib/org", () => ({ getOrgById: vi.fn() }));
-vi.mock("@/lib/tenant", () => ({ getCurrentOrgId: vi.fn() }));
+vi.mock("@/lib/tenant", () => ({ getCurrentOrgId: vi.fn(), SANJOW_ORG_ID: "sanjow" }));
 
 import { auth } from "@/auth";
 import { findUserByEmail } from "@/lib/users";
@@ -29,7 +29,7 @@ import {
 } from "@/lib/membership";
 import { getOrgById } from "@/lib/org";
 import { getCurrentOrgId } from "@/lib/tenant";
-import { requireRole } from "@/lib/authz";
+import { DEV_NO_AUTH_USER_ID, requireRole } from "@/lib/authz";
 import type { User } from "@/lib/users";
 import type { Membership } from "@/lib/membership";
 import type { MembershipRole } from "@/lib/roles";
@@ -75,6 +75,10 @@ function membership(role: MembershipRole): Membership {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("requireRole — authentication", () => {
@@ -199,5 +203,56 @@ describe("requireRole — pre-migration token (no session.orgId)", () => {
     await expect(requireRole("admin")).resolves.toMatchObject({ ok: true, role: "admin" });
     expect(mockGetCurrentOrgId).toHaveBeenCalled();
     expect(mockGetMembership).toHaveBeenCalledWith("u1", ORG);
+  });
+});
+
+describe("requireRole — local dev WASABI_DEV_NO_AUTH bypass", () => {
+  // The bypass only ever runs in local dev — middleware.ts refuses to boot with
+  // the flag set under VERCEL/production — so pin VERCEL empty here to keep the
+  // guard's env checks deterministic regardless of where the suite runs. (NODE_ENV
+  // is already "test" under vitest, so the "not production" half holds.)
+  beforeEach(() => {
+    vi.stubEnv("WASABI_DEV_NO_AUTH", "1");
+    vi.stubEnv("VERCEL", "");
+  });
+
+  it("no session → a synthetic owner grant (the god-mode default), never a DB lookup", async () => {
+    mockAuth.mockResolvedValue(null);
+
+    await expect(requireRole("owner")).resolves.toEqual({
+      ok: true,
+      userId: DEV_NO_AUTH_USER_ID,
+      orgId: "sanjow",
+      role: "owner",
+    });
+    // No real session means nothing to attribute to — it must not touch the DB.
+    expect(mockFindUserByEmail).not.toHaveBeenCalled();
+  });
+
+  it("a REAL local session is preferred over the sentinel — attributes to the real user.id", async () => {
+    // A developer who registered + bootstrapped a real account locally (owner of
+    // their fresh org) keeps the flag on. requireRole must return their real id,
+    // not DEV_NO_AUTH_USER_ID — otherwise a write to a user(id) foreign key crashes.
+    mockAuth.mockResolvedValue(session());
+    mockFindUserByEmail.mockResolvedValue(user());
+    mockGetMembership.mockResolvedValue(membership("owner"));
+
+    await expect(requireRole("admin")).resolves.toEqual({
+      ok: true,
+      userId: "u1",
+      orgId: ORG,
+      role: "owner",
+    });
+    expect(mockFindUserByEmail).toHaveBeenCalledWith(EMAIL);
+  });
+
+  it("with a real session, authorization is the caller's REAL role — the flag is not blanket owner", async () => {
+    // Falling through means a real viewer session stays a viewer, not an owner:
+    // the bypass grants owner only when there is no session to derive a role from.
+    mockAuth.mockResolvedValue(session());
+    mockFindUserByEmail.mockResolvedValue(user());
+    mockGetMembership.mockResolvedValue(membership("viewer"));
+
+    await expect(requireRole("admin")).resolves.toMatchObject({ ok: false, status: 403 });
   });
 });
