@@ -291,9 +291,53 @@ function resolveDatabaseId(baseUrl: string, apiKey: string): Promise<number> {
   return p;
 }
 
+// ---------------------------------------------------------------------------
+// Network timeout — every call below runs against the SHARED live payments DB
+// ("MAIN DB - Production") with heavy CTEs. Before this, the fetches had no cap,
+// so a slow or wedged query blocked the render until the serverless function's
+// own max duration expired (then a 504) — and because the home cockpit fans one
+// query out PER active experiment inside a single Promise.all, one stuck
+// connection stalled the ENTIRE homepage. A bounded AbortSignal.timeout turns
+// "hang until the platform kills it" into a clean, fast { available: false } that
+// every caller already renders as an empty state. Configurable
+// (METABASE_TIMEOUT_MS) for a rare legitimately-heavy query, clamped so a
+// fat-fingered env can neither restore the unbounded behaviour nor set it to 0.
+// ---------------------------------------------------------------------------
+const DEFAULT_METABASE_TIMEOUT_MS = 8_000;
+const MIN_METABASE_TIMEOUT_MS = 1_000;
+const MAX_METABASE_TIMEOUT_MS = 30_000;
+
+/** Resolve the per-request Metabase timeout (ms) from env, clamped to a sane
+ *  band. A missing / non-numeric / non-positive value falls back to the default.
+ *  Exported for the direct clamp test in lib/metabase.test.ts. */
+export function metabaseTimeoutMs(): number {
+  const raw = Number(process.env.METABASE_TIMEOUT_MS);
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_METABASE_TIMEOUT_MS;
+  return Math.min(
+    MAX_METABASE_TIMEOUT_MS,
+    Math.max(MIN_METABASE_TIMEOUT_MS, Math.floor(raw)),
+  );
+}
+
+/** fetch() with a hard per-request timeout. On expiry the request is aborted and
+ *  this rejects with a clear, greppable Error — which the callers' existing
+ *  try/catch already turns into { available: false, reason }, so a timeout
+ *  degrades exactly like any other Metabase failure (never throws to the UI). */
+async function metabaseFetch(url: string, init: RequestInit): Promise<Response> {
+  const ms = metabaseTimeoutMs();
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(ms) });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      throw new Error(`Metabase request timed out after ${ms}ms`);
+    }
+    throw err;
+  }
+}
+
 /** The uncached fetch — the whole /api/database list, filtered by name. */
 async function fetchDatabaseId(baseUrl: string, apiKey: string): Promise<number> {
-  const res = await fetch(`${baseUrl}/api/database`, {
+  const res = await metabaseFetch(`${baseUrl}/api/database`, {
     headers: { "x-api-key": apiKey, accept: "application/json" },
     cache: "no-store",
   });
@@ -318,7 +362,7 @@ async function runNativeQuery(
   databaseId: number,
   sql: string,
 ): Promise<Array<Record<string, unknown>>> {
-  const res = await fetch(`${baseUrl}/api/dataset`, {
+  const res = await metabaseFetch(`${baseUrl}/api/dataset`, {
     method: "POST",
     headers: {
       "x-api-key": apiKey,
