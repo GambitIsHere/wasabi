@@ -19,11 +19,18 @@
 // Metabase / DB dependency either way.
 // ============================================================================
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isValidDateInput, isValidThemeSlug, runPaymentMetrics, runResults } from "@/lib/metabase";
+import {
+  isValidDateInput,
+  isValidThemeSlug,
+  metabaseTimeoutMs,
+  runPaymentMetrics,
+  runResults,
+} from "@/lib/metabase";
 import type { RegisteredExperiment } from "@/lib/experiments";
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 // ---------------------------------------------------------------------------
@@ -186,5 +193,65 @@ describe("runResults — the same allow-list guards the live results path", () =
     vi.stubEnv("METABASE_URL", "");
     const outcome = await runResults(fakeExperiment());
     expect(outcome).toEqual({ available: false, reason: "METABASE_API_KEY not configured" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// metabaseTimeoutMs — the per-request network cap (clamped). Before the cap,
+// the fetches had no timeout, so a wedged query hung the render until the
+// serverless function's own max duration (then 504); the home cockpit's
+// per-experiment Promise.all made one stuck connection stall the whole page.
+// ---------------------------------------------------------------------------
+
+describe("metabaseTimeoutMs — env-configurable, clamped to a sane band", () => {
+  it("defaults to 8000ms when unset", () => {
+    vi.stubEnv("METABASE_TIMEOUT_MS", "");
+    expect(metabaseTimeoutMs()).toBe(8_000);
+  });
+
+  it("defaults when the value is non-numeric or non-positive", () => {
+    vi.stubEnv("METABASE_TIMEOUT_MS", "abc");
+    expect(metabaseTimeoutMs()).toBe(8_000);
+    vi.stubEnv("METABASE_TIMEOUT_MS", "0");
+    expect(metabaseTimeoutMs()).toBe(8_000);
+    vi.stubEnv("METABASE_TIMEOUT_MS", "-500");
+    expect(metabaseTimeoutMs()).toBe(8_000);
+  });
+
+  it("passes a valid value through", () => {
+    vi.stubEnv("METABASE_TIMEOUT_MS", "5000");
+    expect(metabaseTimeoutMs()).toBe(5_000);
+  });
+
+  it("clamps below the 1000ms floor up, and above the 30000ms ceiling down", () => {
+    vi.stubEnv("METABASE_TIMEOUT_MS", "500");
+    expect(metabaseTimeoutMs()).toBe(1_000);
+    vi.stubEnv("METABASE_TIMEOUT_MS", "999999");
+    expect(metabaseTimeoutMs()).toBe(30_000);
+  });
+});
+
+describe("runResults — a wedged Metabase fetch degrades to a clean timeout reason", () => {
+  it("aborts the request and reports the timeout instead of hanging", async () => {
+    vi.stubEnv("METABASE_API_KEY", "test-key");
+    // Unique base URL so the module-level db-id memo can't collide with another
+    // test's resolved id (a failure clears itself, but a fresh URL is safest).
+    vi.stubEnv("METABASE_URL", "https://mb.example.timeout-case");
+
+    let sawSignal: unknown = null;
+    // Every fetch is aborted by the timeout signal: reject exactly the way
+    // AbortSignal.timeout does on expiry (a TimeoutError DOMException), so the
+    // mapping in metabaseFetch is exercised end-to-end through runResults.
+    vi.stubGlobal("fetch", (_url: string, init: RequestInit) => {
+      sawSignal = init.signal;
+      return Promise.reject(new DOMException("The operation timed out.", "TimeoutError"));
+    });
+
+    const outcome = await runResults(fakeExperiment());
+    expect(outcome.available).toBe(false);
+    expect((outcome as { reason: string }).reason).toMatch(/timed out after \d+ms/i);
+    // Proves the abort signal is actually wired onto the request, not just that
+    // the error text maps — a fetch with no signal could never time out.
+    expect(sawSignal).toBeInstanceOf(AbortSignal);
   });
 });
