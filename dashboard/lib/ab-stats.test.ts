@@ -41,6 +41,33 @@ function pooledN(p1: number, p2: number, zA: number, zB: number): number {
   return Math.ceil(((zA * sdNull + zB * sdAlt) / (p2 - p1)) ** 2);
 }
 
+/** Independent transcription of the pooled two-proportion z statistic and of the
+ *  test-inverted CI the implementation reports. Shares no code with ab-stats:
+ *  the pooled SE and the critical z (Z_975) are spelled out here from scratch,
+ *  so a bug in analyzeTwoProportion's CI shows up as a mismatch rather than
+ *  hiding behind the same expression. `zCrit` is a literature constant. */
+function pooledZ(sC: number, nC: number, sV: number, nV: number): number {
+  const pC = sC / nC;
+  const pV = sV / nV;
+  const pPool = (sC + sV) / (nC + nV);
+  const se = Math.sqrt(pPool * (1 - pPool) * (1 / nC + 1 / nV));
+  return (pV - pC) / se;
+}
+function pooledDiffCI(
+  sC: number,
+  nC: number,
+  sV: number,
+  nV: number,
+  zCrit: number,
+): { low: number; high: number } {
+  const pC = sC / nC;
+  const pV = sV / nV;
+  const pPool = (sC + sV) / (nC + nV);
+  const se = Math.sqrt(pPool * (1 - pPool) * (1 / nC + 1 / nV));
+  const diff = pV - pC;
+  return { low: diff - zCrit * se, high: diff + zCrit * se };
+}
+
 // ---------------------------------------------------------------------------
 // normalQuantile — the added primitive
 // ---------------------------------------------------------------------------
@@ -220,18 +247,56 @@ describe("analyzeTwoProportion", () => {
     expect(r.zScore).toBeCloseTo(2.1028, 3);
     expect(r.pValue).toBeCloseTo(0.0355, 3);
     expect(r.significant).toBe(true);
-    // Wald CI (unpooled): [0.03 ± 1.959964·0.0142513] ≈ [0.00207, 0.05793].
-    expect(r.ciLow).toBeCloseTo(0.00207, 4);
-    expect(r.ciHigh).toBeCloseTo(0.05793, 4);
+    // Test-inverted CI on the pooled SE, checked against an independent build:
+    // [0.03 ± 1.959964·0.0142667] ≈ [0.00204, 0.05796]. A significant lift must
+    // sit entirely above zero.
+    const ci = pooledDiffCI(100, 1000, 130, 1000, Z_975);
+    expect(r.ciLow).toBeCloseTo(ci.low, 5);
+    expect(r.ciHigh).toBeCloseTo(ci.high, 5);
+    expect(r.ciLow).toBeGreaterThan(0);
   });
 
-  it("CI always brackets the observed difference", () => {
+  it("CI matches an independent pooled interval and tracks significance", () => {
+    // Non-tautological: assert both bounds against a from-scratch pooled build
+    // (not ciLow=abs−h/ciHigh=abs+h, which can only fail on NaN), and assert the
+    // significance↔CI contract — a significant result excludes zero, and here it
+    // is significant, so the lower bound is above zero.
     const r = analyzeTwoProportion({
       control: { visitors: 800, conversions: 90 },
-      variant: { visitors: 820, conversions: 101 },
+      variant: { visitors: 820, conversions: 130 },
     });
+    const ci = pooledDiffCI(90, 800, 130, 820, Z_975);
+    expect(r.ciLow).toBeCloseTo(ci.low, 5);
+    expect(r.ciHigh).toBeCloseTo(ci.high, 5);
+    // Independent z confirms this case is a genuine, comfortably-significant lift.
+    expect(Math.abs(pooledZ(90, 800, 130, 820))).toBeGreaterThan(Z_975);
+    expect(r.significant).toBe(true);
+    expect(r.ciLow).toBeGreaterThan(0); // significant ⟹ CI excludes zero
     expect(r.ciLow).toBeLessThanOrEqual(r.absUplift);
     expect(r.ciHigh).toBeGreaterThanOrEqual(r.absUplift);
+  });
+
+  it("keeps the flag and the CI consistent at the z-test boundary (341/800 vs 380/800)", () => {
+    // The case the earlier unpooled-Wald CI got wrong: the pooled z lands a hair
+    // under 1.95996, so the two-sided test does NOT reject — yet an unpooled Wald
+    // interval (smaller SE) excluded zero. The pooled, test-inverted interval
+    // must bracket zero here, matching significant:false.
+    const r = analyzeTwoProportion({
+      control: { visitors: 800, conversions: 341 },
+      variant: { visitors: 800, conversions: 380 },
+    });
+    // Independent pooled z sits just below the two-sided critical value.
+    const z = pooledZ(341, 800, 380, 800);
+    expect(z).toBeLessThan(Z_975);
+    expect(z).toBeGreaterThan(1.95); // genuinely at the boundary, not far off
+    expect(r.significant).toBe(false);
+    // Flag and interval agree: not significant ⟹ the CI includes zero.
+    expect(r.ciLow).toBeLessThanOrEqual(0);
+    expect(r.ciHigh).toBeGreaterThanOrEqual(0);
+    // And the reported bounds are the pooled interval, not the unpooled one.
+    const ci = pooledDiffCI(341, 800, 380, 800, Z_975);
+    expect(r.ciLow).toBeCloseTo(ci.low, 5);
+    expect(r.ciHigh).toBeCloseTo(ci.high, 5);
   });
 
   it("flags a small, within-noise difference as not significant", () => {
@@ -271,6 +336,29 @@ describe("analyzeTwoProportion", () => {
     expect(one.significant).toBe(true);
   });
 
+  it("reports a proper one-sided interval: finite lower bound, unbounded upper", () => {
+    // A one-sided (variant > control) decision bounds only the near side. The
+    // upper bound is +Infinity, and the finite lower bound crosses zero exactly
+    // when the one-sided test rejects — so the interval and the flag agree.
+    const win = analyzeTwoProportion({
+      control: { visitors: 1000, conversions: 100 },
+      variant: { visitors: 1000, conversions: 130 },
+      sides: 1,
+    });
+    expect(win.ciHigh).toBe(Infinity);
+    expect(Number.isFinite(win.ciLow)).toBe(true);
+    expect(win.significant).toBe(true);
+    expect(win.ciLow).toBeGreaterThan(0); // rejects ⟺ lower bound above zero
+    // The one-sided lower bound uses the smaller one-sided critical value, so it
+    // sits above the two-sided lower bound for the same data.
+    const two = analyzeTwoProportion({
+      control: { visitors: 1000, conversions: 100 },
+      variant: { visitors: 1000, conversions: 130 },
+      sides: 2,
+    });
+    expect(win.ciLow).toBeGreaterThan(two.ciLow);
+  });
+
   it("one-sided treats a losing variant as not significant (p > 0.5)", () => {
     const one = analyzeTwoProportion({
       control: { visitors: 1000, conversions: 130 },
@@ -279,6 +367,30 @@ describe("analyzeTwoProportion", () => {
     });
     expect(one.pValue).toBeGreaterThan(0.5);
     expect(one.significant).toBe(false);
+  });
+
+  it("uses the SIGNED z one-sided: an underperforming variant never wins (12% vs 8%)", () => {
+    // control 12%, variant 8% — a real DROP. A directional (variant > control)
+    // test must NOT reach significance; the two-sided test at the same inputs,
+    // which detects a move either way, still does.
+    const inputs = {
+      control: { visitors: 1000, conversions: 120 }, // 12%
+      variant: { visitors: 1000, conversions: 80 }, //  8%
+    };
+    const one = analyzeTwoProportion({ ...inputs, sides: 1 });
+    expect(one.zScore).toBeLessThan(0); // variant behind → negative z
+    expect(one.pValue).toBeGreaterThan(0.5); // signed upper tail, not 1 − Φ(|z|)
+    expect(one.significant).toBe(false);
+    // One-sided (variant > control) never brackets an upper side: it is unbounded
+    // above, and here the whole interval sits at or below zero.
+    expect(one.ciHigh).toBe(Infinity);
+    expect(one.ciLow).toBeLessThanOrEqual(0);
+
+    // Two-sided at the SAME inputs behaves as before: a clear, significant move.
+    const two = analyzeTwoProportion({ ...inputs, sides: 2 });
+    expect(two.significant).toBe(true);
+    expect(two.pValue).toBeLessThan(0.05);
+    expect(two.ciHigh).toBeLessThan(0); // a significant drop sits entirely below 0
   });
 
   it("handles a zero-conversion control without NaN", () => {

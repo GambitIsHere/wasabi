@@ -14,7 +14,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { SampleSizeCalculator } from "@/components/SampleSizeCalculator";
+import { SampleSizeCalculator, interpretArms } from "@/components/SampleSizeCalculator";
 import { estimateDuration, sampleSizePerArm } from "@/lib/ab-stats";
 
 describe("SampleSizeCalculator", () => {
@@ -44,5 +44,42 @@ describe("SampleSizeCalculator", () => {
     expect(markup).toContain(nPerArm.toLocaleString("en-GB"));
     expect(markup).toContain(total.toLocaleString("en-GB"));
     expect(markup).toContain(`~${dur.weeks} wk`);
+    // The default arms field (2) is clean, so the readout labels it plainly.
+    expect(markup).toContain("Total (2 arms)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// interpretArms — the visible arms-input clamp (fix: no silent coercion)
+// ---------------------------------------------------------------------------
+describe("interpretArms", () => {
+  it("passes a clean whole number ≥ 2 through with no note", () => {
+    expect(interpretArms("2")).toEqual({ count: 2, note: null });
+    expect(interpretArms("3")).toEqual({ count: 3, note: null });
+    expect(interpretArms("10")).toEqual({ count: 10, note: null });
+  });
+
+  it("clamps below-minimum values to 2 and says so", () => {
+    for (const t of ["1", "0", "-4"]) {
+      const r = interpretArms(t);
+      expect(r.count).toBe(2);
+      expect(r.note).not.toBeNull();
+    }
+  });
+
+  it("clamps blank / non-numeric input to 2 and says so", () => {
+    for (const t of ["", "   ", "abc"]) {
+      const r = interpretArms(t);
+      expect(r.count).toBe(2);
+      expect(r.note).not.toBeNull();
+    }
+  });
+
+  it("rounds a decimal to a whole arm count and says so (5.7 → 6, not a silent 2)", () => {
+    const r = interpretArms("5.7");
+    expect(r.count).toBe(6);
+    expect(r.note).not.toBeNull();
+    // The old behaviour rounded silently; the count the readout uses is surfaced.
+    expect(r.note).toContain("6");
   });
 });

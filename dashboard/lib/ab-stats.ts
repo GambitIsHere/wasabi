@@ -10,8 +10,9 @@
 // ONE numeric core. Rather than ship a second erf / normal-CDF / z-test, this
 // file imports the exact primitives verdict.ts already uses (erf, normalCdf,
 // twoProportionZTest — exported from there this batch). analyzeTwoProportion
-// is a thin wrapper over twoProportionZTest plus uplift + a Wald CI; it does
-// NOT re-derive the z math. The only numeric machinery added here is what
+// is a thin wrapper over twoProportionZTest plus uplift + a test-inverted CI on
+// the same pooled SE; it does NOT re-derive the z math. The only numeric
+// machinery added here is what
 // verdict.ts genuinely lacks: an inverse-normal quantile (needed for sample
 // size / CI critical values) and a chi-square survival function (needed for
 // SRM). Both are standard, dependency-free, and cross-checked in the tests.
@@ -25,9 +26,17 @@
 //    proportions (Fleiss / the formula behind Evan Miller's calculator).
 //    NO continuity correction — matching verdict.ts's z-test, and standard for
 //    A/B sizing. Results land within ~1-3% of Evan Miller / statsmodels.
-//  • The z-test pools variance under H0 (via twoProportionZTest); the CI uses
-//    the UNPOOLED Wald standard error. That split is textbook: the test
-//    assumes equal rates, the interval does not.
+//  • Significance and the reported CI are ONE decision, not two. Both come from
+//    the pooled two-proportion z-test (via twoProportionZTest): `significant` is
+//    that test's own reject rule (two-sided |z| > z_crit; one-sided z > z_crit),
+//    and the CI is the SAME test inverted — absUplift ± z_crit·SE using the SAME
+//    pooled SE the z carries (SE = absUplift / z). So |absUplift| > half ⟺
+//    |z| > z_crit: the interval excludes zero on exactly the condition the flag
+//    is true, and a "not significant" result can never sit beside a CI that
+//    excludes zero. (Earlier this file paired the pooled test with an UNPOOLED
+//    Wald CI; at the boundary the unpooled SE is a hair smaller, so the CI could
+//    exclude zero while the flag read "not significant" — e.g. 341/800 vs
+//    380/800. The test-inverted interval removes that split by construction.)
 //  • probabilityToBeatControl is a normal approximation to P(variant > control),
 //    not a Beta-Binomial Monte Carlo — a fast secondary read, labelled as such.
 // ============================================================================
@@ -330,21 +339,31 @@ export interface AnalyzeResult {
   zScore: number;
   /** p-value — two-tailed for sides=2; upper-tail (variant > control) for sides=1. */
   pValue: number;
-  /** True when pValue < alpha. */
+  /** The z-test's reject decision (two-sided |z| > z_crit; one-sided z > z_crit).
+   *  Identical to "[ciLow, ciHigh] excludes 0", so it never contradicts the CI. */
   significant: boolean;
-  /** Wald CI (lower) for the absolute uplift, at the test's critical z. */
+  /** CI (lower bound) for the absolute uplift — the pooled test inverted. For a
+   *  one-sided test this is the only finite bound (the near side). */
   ciLow: number;
-  /** Wald CI (upper) for the absolute uplift. */
+  /** CI (upper bound) for the absolute uplift. +Infinity for a one-sided test
+   *  (H1: variant > control bounds the lower side only). */
   ciHigh: number;
 }
 
 /**
  * Analyse an observed two-arm result. Delegates the z + p math to verdict.ts's
- * twoProportionZTest (pooled, two-tailed), then adds uplift and a Wald CI on
- * the difference. For a one-sided request the p-value is the upper tail
- * P(Z > z) — a variant that came out worse yields p > 0.5 (not significant),
- * by design. The CI uses the UNPOOLED (Wald) standard error and the critical
- * value z = Φ⁻¹(1 − alpha/sides).
+ * pooled twoProportionZTest, then adds uplift and a CONSISTENT significance/CI
+ * pair — both derived from that one test (see the file header):
+ *
+ *  • `significant` is the z-test's reject decision against the critical value
+ *    z_crit = Φ⁻¹(1 − alpha/sides): two-sided |z| > z_crit, one-sided z > z_crit.
+ *  • `pValue` is the pooled two-tailed p for sides=2, and the SIGNED upper tail
+ *    Φ(−z) for sides=1 — a variant that came out worse has z < 0, so its
+ *    one-sided p is > 0.5 and it is never significant.
+ *  • the CI is that same test inverted: absUplift ± z_crit·SE, reusing the
+ *    pooled SE the z carries (SE = absUplift / z). It therefore excludes zero
+ *    on exactly the condition `significant` is true. A one-sided test bounds
+ *    only the near side (the far bound is ±Infinity).
  */
 export function analyzeTwoProportion(opts: AnalyzeOpts): AnalyzeResult {
   const { control, variant, alpha = DEFAULT_ALPHA, sides = DEFAULT_SIDES } = opts;
@@ -358,24 +377,35 @@ export function analyzeTwoProportion(opts: AnalyzeOpts): AnalyzeResult {
 
   // The z math is verdict.ts's — variant is (s1,n1), control is (s2,n2), so a
   // positive z means the variant leads (matches SignificanceTest's convention).
+  // That test builds z = absUplift / SE_pooled, so z carries the pooled SE the
+  // interval below reuses; no second, differently-pooled SE enters the picture.
   const { z, p: pTwo } = twoProportionZTest(
     variant.conversions,
     nV,
     control.conversions,
     nC,
   );
-  const pValue = sides === 1 ? 1 - normalCdf(z) : pTwo;
-  const significant = pValue < alpha;
 
-  // Wald CI on the difference (unpooled SE), at the test's critical z.
-  const seDiff = Math.sqrt(
-    (nC > 0 ? (rateC * (1 - rateC)) / nC : 0) +
-      (nV > 0 ? (rateV * (1 - rateV)) / nV : 0),
-  );
+  // One-sided p uses the SIGNED z: the upper tail P(Z > z) = Φ(−z). Φ(−z) rather
+  // than 1 − Φ(z) keeps precision for a strong win (large +z) and, for a losing
+  // variant (z < 0), returns > 0.5 so a directional test cannot call it a win.
+  const pValue = sides === 1 ? normalCdf(-z) : pTwo;
+
+  // Critical value for this test (two-sided Φ⁻¹(1−α/2); one-sided Φ⁻¹(1−α)).
   const zCrit = normalQuantile(1 - alpha / sides);
-  const half = zCrit * seDiff;
+
+  // `significant` IS the z-test's reject rule, written against zCrit so it is
+  // the SAME comparison the CI makes below — the two cannot disagree.
+  const significant = sides === 1 ? z > zCrit : Math.abs(z) > zCrit;
+
+  // Test-inverted CI on the absolute uplift. half = zCrit·SE_pooled with
+  // SE_pooled = absUplift / z, so |absUplift| > |half| ⟺ |z| > zCrit — the
+  // interval excludes zero on exactly the same condition as `significant`. z is
+  // zero only when absUplift is zero (equal rates or a degenerate/empty arm);
+  // guard that to a zero-width interval instead of dividing 0/0.
+  const half = z !== 0 ? zCrit * (absUplift / z) : 0;
   const ciLow = absUplift - half;
-  const ciHigh = absUplift + half;
+  const ciHigh = sides === 1 ? Number.POSITIVE_INFINITY : absUplift + half;
 
   return { rateC, rateV, absUplift, relUplift, zScore: z, pValue, significant, ciLow, ciHigh };
 }

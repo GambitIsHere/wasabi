@@ -38,10 +38,34 @@ function fmtInt(n: number): string {
   return Math.round(n).toLocaleString("en-GB");
 }
 
+/**
+ * Interpret the "number of arms" field. Arms must be a whole number ≥ 2 (control
+ * plus at least one variant). Anything else — blank, non-numeric, 0/1, or a
+ * decimal like 5.7 — is clamped to a usable count and returned with a `note`
+ * explaining the clamp, so the readout never silently uses a number the user
+ * didn't type. A clean input returns note: null. Exported so the clamp is unit
+ * tested directly (the render test can't fire input events under static markup).
+ */
+export function interpretArms(text: string): { count: number; note: string | null } {
+  const parsed = toNumber(text);
+  if (parsed === null) {
+    return { count: 2, note: "Enter a whole number of arms — using 2." };
+  }
+  if (parsed < 2) {
+    return { count: 2, note: "At least 2 arms (control + a variant) — using 2." };
+  }
+  if (!Number.isInteger(parsed)) {
+    const count = Math.round(parsed);
+    return { count, note: `Whole arms only — using ${count}.` };
+  }
+  return { count: parsed, note: null };
+}
+
 const inputClass =
   "rounded-lg border border-line-strong bg-bg px-3 py-2 text-sm text-fg placeholder:text-faint focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40";
 const fieldLabel = "text-xs font-medium text-muted";
 const hint = "text-[11px] text-faint";
+const warnHint = "text-[11px] text-warn";
 
 export function SampleSizeCalculator() {
   // Everything is kept as text so a field can be transiently empty while typing.
@@ -55,12 +79,16 @@ export function SampleSizeCalculator() {
   const [dailyTraffic, setDailyTraffic] = useState("1000");
   const [allocation, setAllocation] = useState("100"); // % of traffic into the test
 
+  // Arms are clamped to a whole number ≥ 2 and any adjustment is surfaced (see
+  // interpretArms), so the field's hint and the "Total (N arms)" readout share
+  // one source of truth and never disagree with what the user typed.
+  const armsInfo = useMemo(() => interpretArms(arms), [arms]);
+
   const result = useMemo(() => {
     const p1 = pctToProportion(baseline);
     const mdeVal = pctToProportion(mde);
     const conf = pctToProportion(confidence);
     const pow = pctToProportion(power);
-    const variants = toNumber(arms);
     const traffic = toNumber(dailyTraffic);
     const alloc = pctToProportion(allocation);
 
@@ -83,7 +111,7 @@ export function SampleSizeCalculator() {
       return { state: "unsizeable" as const };
     }
 
-    const variantCount = variants && variants >= 2 ? Math.round(variants) : 2;
+    const variantCount = armsInfo.count;
     const total = nPerArm * variantCount;
 
     // Duration is optional — only computed when traffic is supplied.
@@ -98,7 +126,7 @@ export function SampleSizeCalculator() {
     }
 
     return { state: "ok" as const, nPerArm, total, variantCount, duration };
-  }, [baseline, mde, mdeType, confidence, power, sides, arms, dailyTraffic, allocation]);
+  }, [baseline, mde, mdeType, confidence, power, sides, armsInfo.count, dailyTraffic, allocation]);
 
   return (
     <section className="rounded-xl border border-line bg-surface p-5">
@@ -223,10 +251,13 @@ export function SampleSizeCalculator() {
             step={1}
             value={arms}
             onChange={(e) => setArms(e.target.value)}
+            aria-invalid={armsInfo.note !== null}
             className={`w-full text-right font-mono tabular-nums ${inputClass}`}
             aria-label="Number of arms including control"
           />
-          <span className={hint}>Including control. Drives the total and the timeline.</span>
+          <span className={armsInfo.note ? warnHint : hint}>
+            {armsInfo.note ?? "Including control. Drives the total and the timeline."}
+          </span>
         </label>
 
         {/* Test direction */}
