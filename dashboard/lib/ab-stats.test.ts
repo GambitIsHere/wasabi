@@ -343,6 +343,12 @@ describe("srmCheck", () => {
     expect(r.mismatch).toBe(true);
   });
 
+  it("flags a catastrophic all-to-one-arm split", () => {
+    const r = srmCheck([1000, 0], [50, 50]);
+    expect(r.mismatch).toBe(true);
+    expect(r.pValue).toBeLessThan(SRM_TINY);
+  });
+
   it("returns a safe non-mismatch for degenerate inputs", () => {
     expect(srmCheck([100], [100]).mismatch).toBe(false); // <2 arms
     expect(srmCheck([500, 500], [50, 50, 0]).mismatch).toBe(false); // length mismatch
@@ -401,12 +407,19 @@ describe("probabilityToBeatControl", () => {
     ).toBe(0.5);
   });
 
-  it("stays within [0,1]", () => {
+  it("stays within [0,1], even at extreme separation", () => {
     const p = probabilityToBeatControl(
       { visitors: 5000, conversions: 250 },
       { visitors: 5000, conversions: 400 },
     );
     expect(p).toBeGreaterThanOrEqual(0);
     expect(p).toBeLessThanOrEqual(1);
+    // A blowout that pushes normalCdf to its ceiling must not round past 1.
+    const extreme = probabilityToBeatControl(
+      { visitors: 100000, conversions: 100 },
+      { visitors: 100000, conversions: 50000 },
+    );
+    expect(extreme).toBeLessThanOrEqual(1);
+    expect(extreme).toBeGreaterThan(0.999);
   });
 });

@@ -458,5 +458,6 @@ export function probabilityToBeatControl(control: ArmCounts, variant: ArmCounts)
     if (rateV < rateC) return 0;
     return 0.5;
   }
-  return normalCdf((rateV - rateC) / seDiff);
+  // Clamp: the A&S normalCdf can round a hair past 1 at extreme separation.
+  return Math.min(1, Math.max(0, normalCdf((rateV - rateC) / seDiff)));
 }
