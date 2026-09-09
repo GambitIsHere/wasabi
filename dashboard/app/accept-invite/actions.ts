@@ -36,7 +36,7 @@ import {
 } from "@/lib/invitations";
 import { hashPassword, validatePasswordStrength } from "@/lib/password";
 import type { MembershipRole } from "@/lib/roles";
-import { createUser, deleteUser, findUserByEmail, isUniqueViolation, normalizeEmail, type User } from "@/lib/users";
+import { createUser, deleteUser, findUserByEmail, isUniqueViolation, normalizeEmail, setUserStatus, type User } from "@/lib/users";
 
 export type AcceptInviteActionResult =
   | { ok: true; orgId: string; role: MembershipRole }
@@ -194,6 +194,78 @@ export async function acceptInviteAsNewUser(
       // outcome; a failed cleanup must not turn into a different error.
     }
   }
+  return accepted;
+}
+
+// ============================================================================
+// acceptInviteAsPendingUser — the ACTIVATE-ON-ACCEPT path (issue #25).
+// ----------------------------------------------------------------------------
+// The third door into an org, for an invitee who ALREADY has a `pending`
+// account — a staff member who self-registered on the org's verified domain
+// (app/api/register/route.ts creates them `pending`, awaiting approval) and is
+// then invited. Before this, that person was stuck: the create path is skipped
+// (an account exists), the one-click confirm needs status === "active", the
+// signed-in acceptInviteAction rejects a non-active account, and a pending
+// account can't sign in — so the invite silently no-oped. The invite IS that
+// approval, so redeeming it here activates the account and grants the role.
+//
+// 🔴 SAME BEARER MODEL as acceptInviteAsNewUser — no session required (a pending
+// account can't sign in, which is the whole gap). Holding a valid single-use
+// invite for inv.email is the authorization, bounded to that exact address:
+//   - The account activated is the one the invite is FOR (findUserByEmail(inv.email)),
+//     never an address from a form or a session.
+//   - The claim runs FIRST (acceptInvitation below), BEFORE the activation: it
+//     re-checks the invite resolves, is still pending, matches the email, and
+//     enforces single-use with its claim-before-grant. An account is therefore
+//     NEVER activated except by a call that actually won the claim on a valid,
+//     unredeemed, unexpired invite for its own email.
+//   - Only a `pending` account is ever touched — an `active` account is a
+//     different door (acceptInviteAction), and a `suspended` account is never
+//     reactivated by redeeming an invite.
+//
+// Activation is exactly approvePendingUser's write (setUserStatus(id,'active'),
+// app/admin/members/actions.ts) — redemption on the invited email is treated as
+// the admin approval it stands in for.
+// ============================================================================
+export async function acceptInviteAsPendingUser(token: string): Promise<AcceptInviteActionResult> {
+  // 1. The token must resolve to a still-pending invite — validated BEFORE any
+  //    write, mirroring acceptInviteAsNewUser's step 1.
+  const inv = await getInvitationByToken(token);
+  if (!inv) {
+    return { ok: false, reason: "This invitation link is invalid." };
+  }
+  const status = invitationStatus(inv, new Date());
+  if (status !== "pending") {
+    return { ok: false, reason: reasonForNonPending(status) };
+  }
+
+  // 2. The invited email must have a PENDING account. Any other state is a
+  //    different door and is refused here (defence in depth for a direct call
+  //    or a state that changed between page load and submit): no account →
+  //    acceptInviteAsNewUser; active → acceptInviteAction; suspended → never
+  //    reactivated via an invite.
+  const existing = await findUserByEmail(inv.email);
+  if (!existing) {
+    return { ok: false, reason: "This email doesn't have an account to activate. Open the invitation link again to create one." };
+  }
+  if (existing.status !== "pending") {
+    return { ok: false, reason: "This account isn't awaiting approval. Reload the page to see its current status." };
+  }
+
+  // 3. Claim the invite + grant membership FIRST — the atomic gate that proves
+  //    the invite was valid, unredeemed, unexpired AND for this exact email, and
+  //    enforces single-use (see lib/invitations.ts's claim-before-grant). Only a
+  //    call that actually wins the claim reaches the activation below.
+  const accepted = await acceptInvitation(token, { id: existing.id, email: existing.email });
+  if (!accepted.ok) {
+    return accepted;
+  }
+
+  // 4. Redemption IS the approval: flip pending → active, the exact write
+  //    approvePendingUser makes. Membership is already granted (step 3); this
+  //    clears credentials-auth's login gate so the account can finally sign in.
+  await setUserStatus(existing.id, "active");
+
   return accepted;
 }
 

@@ -104,6 +104,23 @@ function isPublic(pathname: string): boolean {
   );
 }
 
+const ACCEPT_INVITE_PATH = "/accept-invite";
+
+/**
+ * The raw invite token rides in the /accept-invite URL query (built in
+ * app/admin/members/actions.ts's inviteMember). `Referrer-Policy: no-referrer`
+ * stops that token leaking to any off-site navigation's `Referer` header — a
+ * link the invitee clicks, an embedded third-party asset, an analytics beacon
+ * (issue #26). Set on the response for /accept-invite only; every other route
+ * keeps the platform default.
+ */
+function withInviteReferrerPolicy(res: NextResponse, pathname: string): NextResponse {
+  if (pathname === ACCEPT_INVITE_PATH || pathname.startsWith(ACCEPT_INVITE_PATH + "/")) {
+    res.headers.set("Referrer-Policy", "no-referrer");
+  }
+  return res;
+}
+
 /**
  * Resolve the org slug for this request and return a rewritten headers bag
  * with ORG_SLUG_HEADER set to it (or absent, if unresolvable) — see this
@@ -129,7 +146,9 @@ const gate = auth((req) => {
   const headers = withResolvedOrgHeader(req);
   const { pathname, search } = req.nextUrl;
 
-  if (isPublic(pathname)) return NextResponse.next({ request: { headers } });
+  if (isPublic(pathname)) {
+    return withInviteReferrerPolicy(NextResponse.next({ request: { headers } }), pathname);
+  }
   // C1 — gate on the REAL session shape (`auth.user`), never on `req.auth`
   // alone: an @auth/core error body is truthy but carries no user, and treating
   // it as signed in fails the gate OPEN. See lib/session-gate.ts.
@@ -150,7 +169,10 @@ const gate = auth((req) => {
  *  must never also skip TENANCY, or every local page would silently render
  *  as "unknown workspace" regardless of host. NEVER set in production. */
 function devNoAuthGate(req: NextRequest): NextResponse {
-  return NextResponse.next({ request: { headers: withResolvedOrgHeader(req) } });
+  return withInviteReferrerPolicy(
+    NextResponse.next({ request: { headers: withResolvedOrgHeader(req) } }),
+    req.nextUrl.pathname,
+  );
 }
 
 export default DEV_NO_AUTH ? devNoAuthGate : gate;

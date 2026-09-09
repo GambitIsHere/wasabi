@@ -24,6 +24,7 @@
 // ============================================================================
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import {
@@ -33,10 +34,11 @@ import {
   type InvitationRole,
   type InvitationStatus,
 } from "@/lib/invitations";
-import { getOrgById } from "@/lib/org";
+import { getOrgById, readOrgSlugHeader } from "@/lib/org";
+import { hostForOrgSlug } from "@/lib/subdomain";
 import { findUserByEmail } from "@/lib/users";
 import { AcceptInviteForm } from "./AcceptInviteForm";
-import { acceptInviteAction } from "./actions";
+import { acceptInviteAction, acceptInviteAsPendingUser } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +72,25 @@ export default async function AcceptInvitePage({
     return <StatusError status={status} />;
   }
 
+  // Branding-origin match (issue #26). getInvitationByToken is NOT host-scoped,
+  // so this page can load on a DIFFERENT org's subdomain than the invite belongs
+  // to — the tenant shell (app/layout.tsx) would then brand to the HOST's org,
+  // not the invite's. When the host names a different org (and there is a per-org
+  // origin to point at), bounce to the invite's own origin so the whole page
+  // matches. Can't loop: after the redirect the host resolves to inv.orgId and
+  // this is a no-op. Best-effort — on hosts with no per-org subdomain (legacy
+  // production, bare localhost, *.vercel.app) hostForOrgSlug returns null and the
+  // page renders in place, content already correct via getOrgById(inv.orgId).
+  const currentSlug = await readOrgSlugHeader();
+  if (currentSlug !== inv.orgId) {
+    const h = await headers();
+    const targetHost = hostForOrgSlug(h.get("host"), inv.orgId);
+    if (targetHost) {
+      const proto = h.get("x-forwarded-proto") ?? (targetHost.includes(".localhost") ? "http" : "https");
+      redirect(`${proto}://${targetHost}/accept-invite?token=${encodeURIComponent(validToken)}`);
+    }
+  }
+
   const org = await getOrgById(inv.orgId);
   const orgName = org?.name ?? inv.orgId;
   const existing = await findUserByEmail(inv.email);
@@ -85,7 +106,52 @@ export default async function AcceptInvitePage({
     );
   }
 
-  // ---- An account already exists for the invited email. ----
+  // ---- The invited email has a PENDING account (self-registered on the org's
+  //      domain, awaiting approval). The invite IS that approval: one click
+  //      activates the account and grants the invited role. No session needed —
+  //      a pending account can't sign in yet, which is the whole gap this closes
+  //      (issue #25). Every security decision is server-side in
+  //      acceptInviteAsPendingUser (claim-before-activate). ----
+  if (existing.status === "pending") {
+    // Capture as a plain string const so the server-action closure below stays
+    // typed — a closure re-widens the narrowed `inv` back to nullable otherwise
+    // (same reason validToken is captured above).
+    const inviteEmail: string = inv.email;
+    async function activateAndJoin() {
+      "use server";
+      const result = await acceptInviteAsPendingUser(validToken);
+      // Activated but not signed in (no session on this path) — send them to
+      // sign in with the address they already set a password for.
+      if (result.ok) redirect(`/signin?email=${encodeURIComponent(inviteEmail)}`);
+      redirect(`/accept-invite?token=${encodeURIComponent(validToken)}&error=1`);
+    }
+
+    return (
+      <InviteShell title={<JoinTitle orgName={orgName} />}>
+        <InviteFacts orgName={orgName} email={inv.email} role={inv.role} />
+        <p className="text-sm leading-relaxed text-muted">
+          Your account for <span className="font-mono text-xs text-fg">{inv.email}</span> is waiting
+          on approval. Accepting activates it and adds you to {orgName} as {inv.role}.
+        </p>
+        {error && (
+          <p
+            role="alert"
+            className="rounded-lg border border-line-strong bg-surface px-4 py-3 text-sm leading-relaxed text-muted"
+          >
+            That didn&apos;t go through — the invitation may have just been used, revoked, or
+            expired. Reload the page to see its current status.
+          </p>
+        )}
+        <form action={activateAndJoin}>
+          <button type="submit" className="btn-primary w-full py-3">
+            Activate and join {orgName} as {inv.role}
+          </button>
+        </form>
+      </InviteShell>
+    );
+  }
+
+  // ---- An active (or suspended) account already exists for the invited email. ----
   const session = await auth();
   const sessionEmail = session?.user?.email ?? null;
   const signedInAsInvitee = sessionEmail !== null && emailMatchesInvitation(inv, sessionEmail);

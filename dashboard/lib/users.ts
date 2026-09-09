@@ -140,6 +140,11 @@ export async function setUserStatus(id: string, status: UserStatus): Promise<Use
 }
 
 /**
+ * @internal Not part of the general user-CRUD surface — a hard DELETE with a
+ * single intended caller (see below). Do not reach for this from new code; a
+ * user-facing "delete my account" needs its own reviewed path (membership,
+ * invitation, and audit implications), not this rollback primitive.
+ *
  * Hard-delete a user row by id. Returns true when a row was removed, false when
  * `id` didn't exist. Its ONLY caller is the compensating rollback in
  * app/accept-invite/actions.ts's acceptInviteAsNewUser: createUser() succeeded

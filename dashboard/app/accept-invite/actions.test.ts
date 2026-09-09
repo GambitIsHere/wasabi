@@ -31,17 +31,23 @@ vi.mock("@/lib/invitations", async () => {
 });
 vi.mock("@/lib/users", async () => {
   const actual = await vi.importActual<typeof import("@/lib/users")>("@/lib/users");
-  return { ...actual, findUserByEmail: vi.fn(), createUser: vi.fn(), deleteUser: vi.fn() };
+  return {
+    ...actual,
+    findUserByEmail: vi.fn(),
+    createUser: vi.fn(),
+    deleteUser: vi.fn(),
+    setUserStatus: vi.fn(),
+  };
 });
 vi.mock("@/lib/password", async () => {
   const policy = await vi.importActual<typeof import("@/lib/password-policy")>("@/lib/password-policy");
   return { ...policy, hashPassword: vi.fn(async () => "argon2-hash-stub") };
 });
 
-import { acceptInviteAsNewUser } from "@/app/accept-invite/actions";
+import { acceptInviteAsNewUser, acceptInviteAsPendingUser } from "@/app/accept-invite/actions";
 import { acceptInvitation, getInvitationByToken } from "@/lib/invitations";
 import type { Invitation } from "@/lib/invitations";
-import { createUser, deleteUser, findUserByEmail } from "@/lib/users";
+import { createUser, deleteUser, findUserByEmail, setUserStatus } from "@/lib/users";
 import { hashPassword } from "@/lib/password";
 import type { User } from "@/lib/users";
 
@@ -50,6 +56,7 @@ const mockAcceptInvitation = vi.mocked(acceptInvitation);
 const mockFindUserByEmail = vi.mocked(findUserByEmail);
 const mockCreateUser = vi.mocked(createUser);
 const mockDeleteUser = vi.mocked(deleteUser);
+const mockSetUserStatus = vi.mocked(setUserStatus);
 const mockHashPassword = vi.mocked(hashPassword);
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -97,6 +104,7 @@ beforeEach(() => {
   // clearAllMocks resets call history but NOT implementations — re-establish a
   // stable default so one test's mockRejectedValue can't leak into the next.
   mockDeleteUser.mockResolvedValue(true);
+  mockSetUserStatus.mockResolvedValue(createdUser({ id: "user-pending", status: "active" }));
 });
 
 describe("acceptInviteAsNewUser — happy path (a brand-new, off-domain account)", () => {
@@ -412,5 +420,142 @@ describe("acceptInviteAsNewUser — field length caps are enforced BEFORE hashin
 
     expect(result.ok).toBe(true);
     expect(mockCreateUser).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ============================================================================
+// acceptInviteAsPendingUser — the ACTIVATE-ON-ACCEPT path (issue #25).
+// ----------------------------------------------------------------------------
+// A self-registered `pending` account that is then invited: redemption is the
+// approval. The invariant under test — an account is activated + granted ONLY
+// via a valid, unredeemed, unexpired invite for that EXACT email, claimed
+// before activation.
+// ============================================================================
+function pendingUser(overrides: Partial<User> = {}): User {
+  return createdUser({ id: "user-pending", email: INVITED_EMAIL, status: "pending", ...overrides });
+}
+
+describe("acceptInviteAsPendingUser — happy path (invite activates a pending account)", () => {
+  it("🔴 claims the invite, then activates the account, returning acceptInvitation's ok result", async () => {
+    mockGetInvitationByToken.mockResolvedValue(invitation({ orgId: "sanjow", role: "editor" }));
+    mockFindUserByEmail.mockResolvedValue(pendingUser());
+    mockAcceptInvitation.mockResolvedValue({ ok: true, orgId: "sanjow", role: "editor" });
+
+    const result = await acceptInviteAsPendingUser("raw-token");
+
+    expect(result).toEqual({ ok: true, orgId: "sanjow", role: "editor" });
+    // Membership is granted for the invited account's own id/email …
+    expect(mockAcceptInvitation).toHaveBeenCalledWith("raw-token", {
+      id: "user-pending",
+      email: INVITED_EMAIL,
+    });
+    // … and only then is the account flipped pending → active.
+    expect(mockSetUserStatus).toHaveBeenCalledWith("user-pending", "active");
+  });
+
+  it("🔴 the account is NEVER created here — this path only activates an existing one", async () => {
+    mockGetInvitationByToken.mockResolvedValue(invitation());
+    mockFindUserByEmail.mockResolvedValue(pendingUser());
+    mockAcceptInvitation.mockResolvedValue({ ok: true, orgId: "sanjow", role: "editor" });
+
+    await acceptInviteAsPendingUser("raw-token");
+
+    expect(mockCreateUser).not.toHaveBeenCalled();
+  });
+});
+
+describe("acceptInviteAsPendingUser — no activation without a valid, pending invite", () => {
+  it("an unknown/invalid token activates nothing", async () => {
+    mockGetInvitationByToken.mockResolvedValue(null);
+
+    const result = await acceptInviteAsPendingUser("bad-token");
+
+    expect(result).toEqual({ ok: false, reason: "This invitation link is invalid." });
+    expect(mockFindUserByEmail).not.toHaveBeenCalled();
+    expect(mockAcceptInvitation).not.toHaveBeenCalled();
+    expect(mockSetUserStatus).not.toHaveBeenCalled();
+  });
+
+  it("🔴 an already-used invite activates nothing (single-use)", async () => {
+    mockGetInvitationByToken.mockResolvedValue(invitation({ acceptedAt: new Date().toISOString() }));
+
+    const result = await acceptInviteAsPendingUser("used-token");
+
+    expect(result).toEqual({ ok: false, reason: "This invitation has already been used." });
+    expect(mockAcceptInvitation).not.toHaveBeenCalled();
+    expect(mockSetUserStatus).not.toHaveBeenCalled();
+  });
+
+  it("an expired invite activates nothing", async () => {
+    mockGetInvitationByToken.mockResolvedValue(
+      invitation({ expiresAt: new Date(Date.now() - 1_000).toISOString() }),
+    );
+
+    const result = await acceptInviteAsPendingUser("expired-token");
+
+    expect(result).toEqual({ ok: false, reason: "This invitation has expired." });
+    expect(mockSetUserStatus).not.toHaveBeenCalled();
+  });
+
+  it("a revoked invite activates nothing", async () => {
+    mockGetInvitationByToken.mockResolvedValue(invitation({ revokedAt: new Date().toISOString() }));
+
+    const result = await acceptInviteAsPendingUser("revoked-token");
+
+    expect(result).toEqual({ ok: false, reason: "This invitation has been revoked." });
+    expect(mockSetUserStatus).not.toHaveBeenCalled();
+  });
+
+  it("🔴 a claim lost to a race (acceptInvitation ok:false) activates nothing", async () => {
+    mockGetInvitationByToken.mockResolvedValue(invitation());
+    mockFindUserByEmail.mockResolvedValue(pendingUser());
+    mockAcceptInvitation.mockResolvedValue({
+      ok: false,
+      reason: "This invitation was just used or revoked — it's no longer available.",
+    });
+
+    const result = await acceptInviteAsPendingUser("raw-token");
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "This invitation was just used or revoked — it's no longer available.",
+    });
+    // The claim ran, but it did not win — so the account is left pending.
+    expect(mockSetUserStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe("acceptInviteAsPendingUser — only ever touches a pending account", () => {
+  it("does nothing when the invited email has no account at all", async () => {
+    mockGetInvitationByToken.mockResolvedValue(invitation());
+    mockFindUserByEmail.mockResolvedValue(null);
+
+    const result = await acceptInviteAsPendingUser("raw-token");
+
+    expect(result.ok).toBe(false);
+    expect(mockAcceptInvitation).not.toHaveBeenCalled();
+    expect(mockSetUserStatus).not.toHaveBeenCalled();
+  });
+
+  it("🔴 refuses an active account (that's the signed-in confirm path, not this one)", async () => {
+    mockGetInvitationByToken.mockResolvedValue(invitation());
+    mockFindUserByEmail.mockResolvedValue(pendingUser({ status: "active" }));
+
+    const result = await acceptInviteAsPendingUser("raw-token");
+
+    expect(result.ok).toBe(false);
+    expect(mockAcceptInvitation).not.toHaveBeenCalled();
+    expect(mockSetUserStatus).not.toHaveBeenCalled();
+  });
+
+  it("🔴 refuses a suspended account — an invite never reactivates it", async () => {
+    mockGetInvitationByToken.mockResolvedValue(invitation());
+    mockFindUserByEmail.mockResolvedValue(pendingUser({ status: "suspended" }));
+
+    const result = await acceptInviteAsPendingUser("raw-token");
+
+    expect(result.ok).toBe(false);
+    expect(mockAcceptInvitation).not.toHaveBeenCalled();
+    expect(mockSetUserStatus).not.toHaveBeenCalled();
   });
 });

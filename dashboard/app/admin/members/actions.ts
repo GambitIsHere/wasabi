@@ -26,7 +26,7 @@ import { DEV_NO_AUTH_USER_ID, requireRole } from "@/lib/authz";
 import { sendInvitationEmail } from "@/lib/email";
 import { createInvitation, isInvitationRole, revokeInvitation } from "@/lib/invitations";
 import { getMembership } from "@/lib/membership";
-import { getOrgById } from "@/lib/org";
+import { getOrgById, readOrgSlugHeader } from "@/lib/org";
 import { getUserById, setUserStatus } from "@/lib/users";
 
 export type ApproveResult = { ok: true } | { ok: false; error: string };
@@ -112,6 +112,23 @@ export async function inviteMember(email: string, role: string): Promise<InviteM
   }
   if (!isInvitationRole(role)) {
     return { ok: false, error: "Choose admin, editor, or viewer for an invite." };
+  }
+
+  // Host validation (issue #26). The invite link below embeds THIS request's Host
+  // (currentOrigin), and the admin forwards that link to the invitee — a forged
+  // Host would poison it, pointing the invitee at an attacker origin. Refuse to
+  // build a link on a Host that doesn't resolve to the caller's OWN org.
+  // readOrgSlugHeader is the Host middleware.ts already parsed into a slug, with
+  // any inbound copy deleted first (so it's trusted), and organization.id IS that
+  // slug (lib/org.ts) — so it compares straight to gate.orgId. Minimal guard now,
+  // ahead of server-side email delivery going live; the invite is not created on
+  // a mismatch.
+  const hostSlug = await readOrgSlugHeader();
+  if (hostSlug !== gate.orgId) {
+    return {
+      ok: false,
+      error: "This invite couldn't be created from this address. Open the members page on your workspace's own URL and try again.",
+    };
   }
 
   // requireRole()'s WASABI_DEV_NO_AUTH bypass (lib/authz.ts) hands back the
