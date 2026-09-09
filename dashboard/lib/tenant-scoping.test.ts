@@ -59,6 +59,7 @@ const DIRECTLY_SCOPED_TABLES: Record<string, "org_id" | "project_id"> = {
   event: "project_id",
   metric: "project_id",
   roadmap_test: "org_id",
+  ticket: "project_id",
 };
 
 /** Child tables that inherit tenancy through a parent FK instead of a column

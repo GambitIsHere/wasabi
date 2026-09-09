@@ -291,6 +291,37 @@ async function doCreateSchema(): Promise<void> {
   // Runway reads order within a lane by position then start_week.
   await sql`CREATE INDEX IF NOT EXISTS roadmap_test_lane_idx ON roadmap_test (lane, position, start_week)`;
 
+  // Per-org Tickets — a kanban board where each org tracks its own experiment
+  // ideas / tasks (backlog → next → running → shipped). A NEW first-class
+  // entity, DISTINCT from roadmap_test (the code-seeded time-timeline): tickets
+  // are freely created and moved per org, and start empty (no seeding). Scoped
+  // by project_id like experiment/event/metric (see lib/tenant.ts's per-table
+  // decision); org_id is denormalised alongside for a future operator view.
+  // assignee_user_id FK-references "user"(id) so a card can't point at a
+  // non-user; experiment_key is a LOOSE link (plain column, NOT a FK) — an
+  // experiment can be archived/deleted out from under a ticket, mirroring how
+  // experiment.youtrack_ticket is a plain column. Brand-new table, additive.
+  await sql`
+    CREATE TABLE IF NOT EXISTS ticket (
+      id               TEXT PRIMARY KEY,
+      org_id           TEXT NOT NULL REFERENCES organization(id),
+      project_id       TEXT NOT NULL REFERENCES project(id),
+      title            TEXT NOT NULL,
+      description      TEXT NOT NULL DEFAULT '',
+      status           TEXT NOT NULL DEFAULT 'backlog',
+      assignee_user_id TEXT REFERENCES "user"(id),
+      experiment_key   TEXT,
+      position         INT NOT NULL DEFAULT 0,
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  // Board reads fetch one project's cards ordered within each column by
+  // position — a single index scan over (project_id, status, position).
+  await sql`CREATE INDEX IF NOT EXISTS ticket_project_status_idx ON ticket (project_id, status, position)`;
+  // A future account-wide operator view lists every card in an org.
+  await sql`CREATE INDEX IF NOT EXISTS ticket_org_idx ON ticket (org_id)`;
+
   // Metric registry — user-defined metric DEFINITIONS (not code). Turns "add a
   // metric" from a 4-file, ~69-hardcoded-reference change into one row: define
   // how to read it off a VariantRow (numerator/denominator or a value field),
