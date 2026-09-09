@@ -124,7 +124,9 @@ const NOISE_RE =
 const SIGNAL_RE =
   /a\/b|\bab test\b|vwo|experiment|split test|\bnew theme\b|\bvariant\b/i;
 
-function isExperiment(t: YouTrackIssue): boolean {
+/** True when a ticket's summary shows a real A/B testing signal and isn't caught
+ *  by the noise filter. Exported so the scan filter is unit-tested directly. */
+export function isExperiment(t: Pick<YouTrackIssue, "summary">): boolean {
   if (NOISE_RE.test(t.summary)) return false;
   // Signal must be in the TITLE — description mentions ("…we A/B tested X…") are
   // too loose and drag in perf / KPI / infra tickets that merely reference a test.
