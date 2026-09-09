@@ -75,6 +75,10 @@ function membership(role: MembershipRole): Membership {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Common case: the request's Host resolves to the caller's own org, so the
+  // host-switch-aware getCurrentOrgId returns the session org. Individual tests
+  // override this to exercise a genuine host-switch (a different resolved org).
+  mockGetCurrentOrgId.mockResolvedValue(ORG);
 });
 
 afterEach(() => {
@@ -203,6 +207,50 @@ describe("requireRole — pre-migration token (no session.orgId)", () => {
     await expect(requireRole("admin")).resolves.toMatchObject({ ok: true, role: "admin" });
     expect(mockGetCurrentOrgId).toHaveBeenCalled();
     expect(mockGetMembership).toHaveBeenCalledWith("u1", ORG);
+  });
+});
+
+describe("requireRole — tenant resolution follows the host-switch (Batch D-b)", () => {
+  it("scopes to the org getCurrentOrgId resolves (the host-switch), NOT the raw session.orgId", async () => {
+    // Session says org A, but the Host names org B and the user is a member of
+    // B, so the data layer's getCurrentOrgId resolves to B. Authorization must
+    // follow: the caller is scoped to B, and their invite/approve/revoke land in
+    // B — the org they are viewing — not their session org A. (Against the old
+    // "trust session.orgId" code this returned org A — the divergence this fix
+    // closes.)
+    mockAuth.mockResolvedValue(session({ orgId: "org-a" }));
+    mockGetCurrentOrgId.mockResolvedValue("org-b");
+    mockFindUserByEmail.mockResolvedValue(user());
+    mockGetMembership.mockResolvedValue(membership("admin"));
+
+    await expect(requireRole("admin")).resolves.toEqual({
+      ok: true,
+      userId: "u1",
+      orgId: "org-b",
+      role: "admin",
+    });
+    expect(mockGetMembership).toHaveBeenCalledWith("u1", "org-b");
+  });
+
+  it("denies when the caller is not a member of the resolved org — never silently re-scopes to the session org", async () => {
+    // getCurrentOrgId resolved to org-b. If the user is NOT a member of org-b,
+    // getMembership is null; with no verified-domain match to lazily provision,
+    // the request is denied — it must not quietly fall back to the session's
+    // org-a and let the action through.
+    mockAuth.mockResolvedValue(session({ orgId: "org-a" }));
+    mockGetCurrentOrgId.mockResolvedValue("org-b");
+    mockFindUserByEmail.mockResolvedValue(user());
+    mockGetMembership.mockResolvedValue(null);
+    mockGetOrgById.mockResolvedValue({
+      id: "org-b",
+      name: "Org B",
+      verifiedDomain: "org-b.example", // alice@sanjow.com does NOT match
+      createdAt: new Date().toISOString(),
+    });
+
+    await expect(requireRole("viewer")).resolves.toMatchObject({ ok: false, status: 403 });
+    expect(mockGetMembership).toHaveBeenCalledWith("u1", "org-b");
+    expect(mockFindOrCreateMembership).not.toHaveBeenCalled();
   });
 });
 

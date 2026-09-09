@@ -115,16 +115,26 @@ export async function requireRole(minimum: MembershipRole): Promise<RequireRoleR
     return { ok: false, status: 401, error: "You must be signed in." };
   }
 
-  // Which org's membership to check. Trust the session's org when present;
-  // otherwise (a pre-migration token with no orgId) resolve it the same way
-  // every other request does — via the subdomain — rather than guessing.
-  let orgId = session.orgId;
-  if (!orgId) {
-    try {
-      orgId = await getCurrentOrgId();
-    } catch {
-      return FORBIDDEN;
-    }
+  // Which org's membership to check. Resolve it through the SAME host-switch-
+  // aware path the data layer uses (getCurrentOrgId → resolveTenantOrgId in
+  // lib/tenant.ts), never the raw session.orgId. This keeps authorization and
+  // data on the same org: for a user who belongs BOTH to their session org and
+  // to the org the Host names, the page they see AND the mutations they run
+  // (invite / approve / revoke, all keyed on the returned orgId) resolve to the
+  // host org — not, as before, reads to the host org while writes silently
+  // landed in the session org. The membership re-check below still gates it:
+  // getCurrentOrgId only switches to the host org for a member of it, and this
+  // function independently confirms membership in whatever org it returns, so a
+  // mutation can never land in an org the caller isn't a member of — and a user
+  // acts with their role IN the org they're viewing (an owner of A who is only a
+  // viewer of B can't use A's privileges while on B's host). A pre-migration
+  // token with no session.orgId still resolves via the subdomain here
+  // (getCurrentOrgId's own fallback) rather than failing.
+  let orgId: string;
+  try {
+    orgId = await getCurrentOrgId();
+  } catch {
+    return FORBIDDEN;
   }
 
   const dbUser = await findUserByEmail(email);
