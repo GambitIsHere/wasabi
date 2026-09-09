@@ -12,7 +12,8 @@
 // re-running an import overwrites a campaign cleanly instead of duplicating it.
 // ============================================================================
 import { getSql, createSchema } from "./db";
-import { slugify } from "./mgmt";
+import { evenSplit, slugify } from "./mgmt";
+import type { ExperimentInput, StoredExperiment } from "./mgmt";
 import { getCurrentProjectId } from "./tenant";
 import { isUniqueViolation } from "./users";
 
@@ -33,6 +34,10 @@ export interface ArchivedVariantInput {
   key: string;
   name?: string;
   isControl?: boolean;
+  /** The storefront `?theme=` slug this arm routed to — carried from a live
+   *  completion so a Restore can rebuild the exact routing. A VWO import omits
+   *  it (null). */
+  themeSlug?: string | null;
   visitors?: number;
   conversions?: number;
   /** % — computed from conversions/visitors when omitted. */
@@ -80,6 +85,8 @@ export interface ArchivedVariant {
   key: string;
   name: string;
   isControl: boolean;
+  /** Storefront `?theme=` slug for this arm; null for a VWO import with no routing. */
+  themeSlug: string | null;
   visitors: number;
   conversions: number;
   conversionRate: number;
@@ -117,6 +124,119 @@ export interface ArchivedExperiment {
 }
 
 // ---------------------------------------------------------------------------
+// Pure builders — the live⇄archive bridge. No I/O, so they unit-test without a
+// DB; the server action (app/actions.ts) gathers the inputs and persists.
+// ---------------------------------------------------------------------------
+
+/**
+ * A per-variant results snapshot the caller has already gathered, keyed by live
+ * variant key. Every field is optional: an arm the caller has no data for is
+ * simply omitted (or carries only some fields), and normalizeVariants fills the
+ * gaps (missing counts → 0, missing rates → null). This keeps
+ * buildArchivedInputFromLive pure — where the numbers come from (Metabase's
+ * runResults, the local event wiring, or nothing) is the action's concern.
+ */
+export interface LiveResultsSnapshot {
+  byVariant: Record<
+    string,
+    {
+      visitors?: number;
+      conversions?: number;
+      conversionRate?: number | null;
+      authRate?: number | null;
+      rebillR1?: number | null;
+      rebillR2?: number | null;
+      rebillR3?: number | null;
+      netRevPerAcquired?: number | null;
+    }
+  >;
+}
+
+/**
+ * Freeze a live experiment + a results snapshot into an ArchivedInput — the
+ * shape upsertArchived persists. Same key / name / business as the live test;
+ * `source: "wasabi"` (a native completion, not a VWO import) and `type: null`.
+ * The chosen winner / status / notes come from `opts`, the end date too; goal
+ * metric and start date carry over from the live experiment. Each live variant
+ * maps to an ArchivedVariantInput carrying its theme slug (so a later Restore
+ * rebuilds the routing) plus whatever the snapshot holds for that key — an arm
+ * missing from the snapshot leaves its numbers unset, which normalizeVariants
+ * reads as 0 / null. Pure.
+ */
+export function buildArchivedInputFromLive(
+  exp: StoredExperiment,
+  snapshot: LiveResultsSnapshot,
+  opts: {
+    winnerVariant: string;
+    status: ArchivedStatus;
+    notes?: string;
+    endDate: string;
+  },
+): ArchivedInput {
+  return {
+    key: exp.key,
+    name: exp.name,
+    business: exp.business,
+    source: "wasabi",
+    type: null,
+    status: opts.status,
+    goalMetric: exp.goalMetric,
+    startDate: exp.startDate,
+    endDate: opts.endDate,
+    winnerVariant: opts.winnerVariant,
+    notes: opts.notes ?? null,
+    variants: exp.variants.map((v) => {
+      const s = snapshot.byVariant[v.key];
+      return {
+        key: v.key,
+        isControl: v.isControl,
+        themeSlug: v.themeSlug,
+        visitors: s?.visitors,
+        conversions: s?.conversions,
+        conversionRate: s?.conversionRate,
+        authRate: s?.authRate,
+        rebillR1: s?.rebillR1,
+        rebillR2: s?.rebillR2,
+        rebillR3: s?.rebillR3,
+        netRevPerAcquired: s?.netRevPerAcquired,
+      };
+    }),
+  };
+}
+
+/**
+ * Rebuild a live ExperimentInput from an archived run so it can be restored —
+ * brought back PAUSED (`active: false`) for review before it takes traffic.
+ * The key is kept, so the restored test lands where the archive was. Each
+ * archived variant becomes a live variant whose theme slug is its stored slug,
+ * or the variant key itself when the archive has none (a VWO import with no
+ * routing) so the slug still passes validateInput's THEME_SLUG_RE. The archive
+ * never stores traffic splits, so an even split is distributed via evenSplit
+ * (sums to exactly 100). Exactly one control is guaranteed: the first arm
+ * flagged control, or the first arm when none is flagged. Pure.
+ */
+export function buildRestoreInput(archived: ArchivedExperiment): ExperimentInput {
+  const variants = archived.variants;
+  const splits = evenSplit(variants.length);
+  const firstControlIdx = variants.findIndex((v) => v.isControl);
+  const controlIdx = firstControlIdx === -1 ? 0 : firstControlIdx;
+  return {
+    name: archived.name,
+    key: archived.key,
+    business: archived.business,
+    goalMetric: archived.goalMetric ?? "",
+    startDate: archived.startDate ?? "",
+    active: false,
+    variants: variants.map((v, i) => ({
+      key: v.key,
+      rolloutPercentage: splits[i] ?? 0,
+      themeSlug: v.themeSlug || v.key,
+      isControl: i === controlIdx,
+    })),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Row shapes (snake_case, as stored)
 // ---------------------------------------------------------------------------
 
@@ -147,6 +267,7 @@ interface ArchivedVariantRow {
   key: string;
   name: string;
   is_control: number;
+  theme_slug: string | null;
   visitors: number;
   conversions: number;
   conversion_rate: number;
@@ -197,6 +318,7 @@ function normalizeVariants(inputs: ArchivedVariantInput[]): ArchivedVariant[] {
       key: v.key,
       name: (v.name ?? "").trim() || v.key,
       isControl: !!v.isControl,
+      themeSlug: v.themeSlug ?? null,
       visitors,
       conversions,
       conversionRate: round2(cr),
@@ -262,6 +384,7 @@ function toDomain(
       key: v.key,
       name: v.name,
       isControl: v.is_control === 1,
+      themeSlug: v.theme_slug ?? null,
       visitors: v.visitors,
       conversions: v.conversions,
       conversionRate: v.conversion_rate,
@@ -381,11 +504,11 @@ export async function upsertArchived(input: ArchivedInput): Promise<string> {
     ...variants.map(
       (v) =>
         sql`INSERT INTO archived_variant
-              (archived_key, key, name, is_control, visitors, conversions,
+              (archived_key, key, name, is_control, theme_slug, visitors, conversions,
                conversion_rate, improvement, chance_to_beat, position,
                auth_rate, rebill_r1, rebill_r2, rebill_r3, net_rev_per_acquired)
             VALUES
-              (${key}, ${v.key}, ${v.name}, ${v.isControl ? 1 : 0}, ${v.visitors}, ${v.conversions},
+              (${key}, ${v.key}, ${v.name}, ${v.isControl ? 1 : 0}, ${v.themeSlug}, ${v.visitors}, ${v.conversions},
                ${v.conversionRate}, ${v.improvement}, ${v.chanceToBeat}, ${v.position},
                ${v.authRate}, ${v.rebillR1}, ${v.rebillR2}, ${v.rebillR3}, ${v.netRevPerAcquired})`,
     ),

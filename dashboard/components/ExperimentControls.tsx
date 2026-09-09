@@ -6,7 +6,7 @@
 // list/detail re-read from the DB — no optimistic divergence.
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { setExperimentActive, deleteExperiment } from "@/app/actions";
+import { setExperimentActive, deleteExperiment, cloneExperiment } from "@/app/actions";
 
 interface Props {
   experimentKey: string;
@@ -15,6 +15,8 @@ interface Props {
   variant?: "card" | "header";
   /** Where to go after a successful delete (default: stay/refresh). */
   redirectOnDelete?: string;
+  /** The home list passes false so a stray click in a dense row can't delete a test — deletion stays on the detail page, and bulk delete is a separate future feature. */
+  allowDelete?: boolean;
 }
 
 export function ExperimentControls({
@@ -22,6 +24,7 @@ export function ExperimentControls({
   active,
   variant = "card",
   redirectOnDelete,
+  allowDelete = true,
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -46,6 +49,17 @@ export function ExperimentControls({
       const res = await setExperimentActive(experimentKey, !active);
       if (!res.ok) setError(res.error);
       else router.refresh();
+    });
+  }
+
+  // Clone → a brand-new PAUSED copy with a fresh EXP id; land the user on its
+  // edit page to review before it takes traffic (see cloneExperiment action).
+  function clone() {
+    setError(null);
+    startTransition(async () => {
+      const res = await cloneExperiment(experimentKey);
+      if (!res.ok) setError(res.error);
+      else router.push(`/experiments/${res.key}/edit`);
     });
   }
 
@@ -85,42 +99,54 @@ export function ExperimentControls({
           {pending ? "…" : active ? "Pause" : "Activate"}
         </button>
 
-        {!confirming ? (
+        {!confirming && (
           <button
             type="button"
-            ref={deleteBtnRef}
-            onClick={() => setConfirming(true)}
+            onClick={clone}
             disabled={pending}
-            className={`${btnBase} border border-line-strong bg-surface text-faint hover:border-bad/40 hover:text-bad`}
+            className={`${btnBase} border border-line-strong bg-surface text-faint hover:border-accent/40 hover:text-accent`}
           >
-            Delete
+            Clone
           </button>
-        ) : (
-          <span
-            className="flex items-center gap-1.5"
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setConfirming(false);
-            }}
-          >
-            <button
-              type="button"
-              onClick={remove}
-              disabled={pending}
-              className={`${btnBase} border border-bad/50 bg-bad/15 text-bad hover:bg-bad/25`}
-            >
-              {pending ? "Deleting…" : "Confirm"}
-            </button>
-            <button
-              type="button"
-              ref={cancelRef}
-              onClick={() => setConfirming(false)}
-              disabled={pending}
-              className={`${btnBase} border border-line-strong bg-surface text-muted hover:text-fg`}
-            >
-              Cancel
-            </button>
-          </span>
         )}
+
+        {allowDelete &&
+          (!confirming ? (
+            <button
+              type="button"
+              ref={deleteBtnRef}
+              onClick={() => setConfirming(true)}
+              disabled={pending}
+              className={`${btnBase} border border-line-strong bg-surface text-faint hover:border-bad/40 hover:text-bad`}
+            >
+              Delete
+            </button>
+          ) : (
+            <span
+              className="flex items-center gap-1.5"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setConfirming(false);
+              }}
+            >
+              <button
+                type="button"
+                onClick={remove}
+                disabled={pending}
+                className={`${btnBase} border border-bad/50 bg-bad/15 text-bad hover:bg-bad/25`}
+              >
+                {pending ? "Deleting…" : "Confirm"}
+              </button>
+              <button
+                type="button"
+                ref={cancelRef}
+                onClick={() => setConfirming(false)}
+                disabled={pending}
+                className={`${btnBase} border border-line-strong bg-surface text-muted hover:text-fg`}
+              >
+                Cancel
+              </button>
+            </span>
+          ))}
       </div>
       {error && (
         <p className="max-w-[18rem] text-right text-[11px] text-bad">{error}</p>

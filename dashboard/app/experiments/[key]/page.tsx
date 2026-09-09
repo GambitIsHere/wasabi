@@ -8,6 +8,7 @@ import { AssignmentTester } from "@/components/AssignmentTester";
 import { ExperimentHealth } from "@/components/ExperimentHealth";
 import { LiveResults } from "@/components/LiveResults";
 import { ExperimentControls } from "@/components/ExperimentControls";
+import { CompleteExperimentForm } from "@/components/CompleteExperimentForm";
 
 // DB-backed — render dynamically so newly-created experiments resolve and edits
 // reflect immediately (routes are no longer known at build time).
@@ -68,6 +69,11 @@ export default async function ExperimentDetailPage({
             >
               Edit
             </Link>
+            <CompleteExperimentForm
+              experimentKey={experiment.flag.key}
+              variantKeys={variants.map((v) => v.key)}
+              controlVariant={experiment.controlVariant}
+            />
             <ExperimentControls
               experimentKey={experiment.flag.key}
               active={experiment.flag.active}

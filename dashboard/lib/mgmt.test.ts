@@ -10,7 +10,9 @@
 import { describe, expect, it } from "vitest";
 import {
   DESCRIPTION_MAX,
+  buildCloneInput,
   businessCode,
+  cloneName,
   composeExperimentName,
   evenSplit,
   isValidYoutrackTicket,
@@ -21,6 +23,7 @@ import {
   validateInput,
   youtrackTicketHref,
   type ExperimentInput,
+  type StoredExperiment,
   type VariantInput,
 } from "@/lib/mgmt";
 
@@ -483,5 +486,80 @@ describe("validateInput — YouTrack ticket (optional, format-checked)", () => {
     expect(validate(validInput({ youtrackTicket: "not a ticket" }))).toBe(
       "YouTrack ticket must be an issue ID like GP-603, or a full ticket URL.",
     );
+  });
+});
+
+describe("cloneName", () => {
+  it("swaps the EXP id token, keeping the rest of the 4-part name", () => {
+    expect(cloneName("EXP001 | TU | cheaper SKU | pricing page", "EXP007")).toBe(
+      "EXP007 | TU | cheaper SKU | pricing page",
+    );
+  });
+
+  it("matches the EXP id case-insensitively and swaps only the first occurrence", () => {
+    expect(cloneName("exp1 | TU | rerun of EXP1", "EXP007")).toBe("EXP007 | TU | rerun of EXP1");
+  });
+
+  it("appends (copy) when the name carries no EXP id", () => {
+    expect(cloneName("hand written name", "EXP007")).toBe("hand written name (copy)");
+  });
+});
+
+describe("buildCloneInput", () => {
+  const source: StoredExperiment = {
+    key: "exp001",
+    name: "EXP001 | TU | cheaper SKU | pricing",
+    business: "Top Up",
+    active: true,
+    goalMetric: "auth_rate",
+    startDate: "2026-09-01",
+    description: "Cheaper SKU vs the default plan.",
+    createdAt: "2026-09-01T00:00:00.000Z",
+    rolloutPercentage: 100,
+    variants: [
+      { key: "control", rolloutPercentage: 50, themeSlug: "tu_lov_uk", isControl: true },
+      { key: "variant_19", rolloutPercentage: 50, themeSlug: "tu_lov_uk_19", isControl: false },
+    ],
+    controlVariant: "control",
+    themeMap: { control: "tu_lov_uk", variant_19: "tu_lov_uk_19" },
+    youtrackTicket: "GP-603",
+  };
+
+  it("allocates a fresh key + EXP id and recomposes the name", () => {
+    const clone = buildCloneInput(source, "EXP007");
+    expect(clone.name).toBe("EXP007 | TU | cheaper SKU | pricing");
+    expect(clone.key).toBe("exp007");
+  });
+
+  it("clears the YouTrack ticket — a clone is a new test, not the source's ticket", () => {
+    expect(buildCloneInput(source, "EXP007").youtrackTicket).toBe("");
+  });
+
+  it("forces the clone paused regardless of the source's active state", () => {
+    expect(buildCloneInput(source, "EXP007").active).toBe(false);
+    expect(buildCloneInput({ ...source, active: false }, "EXP007").active).toBe(false);
+  });
+
+  it("copies business, goal metric, start date, description and every variant verbatim", () => {
+    const clone = buildCloneInput(source, "EXP007");
+    expect(clone.business).toBe("Top Up");
+    expect(clone.goalMetric).toBe("auth_rate");
+    expect(clone.startDate).toBe("2026-09-01");
+    expect(clone.description).toBe("Cheaper SKU vs the default plan.");
+    expect(clone.variants).toEqual(source.variants);
+  });
+
+  it("omits an empty description (undefined, not an empty string)", () => {
+    expect(buildCloneInput({ ...source, description: "" }, "EXP007").description).toBeUndefined();
+  });
+
+  it("gives the variant array a fresh identity (not the source's reference)", () => {
+    const clone = buildCloneInput(source, "EXP007");
+    expect(clone.variants).not.toBe(source.variants);
+    expect(clone.variants[0]).not.toBe(source.variants[0]);
+  });
+
+  it("produces an input that passes validateInput (immediately valid)", () => {
+    expect(validate(buildCloneInput(source, "EXP007"))).toBeNull();
   });
 });

@@ -70,6 +70,20 @@ export interface StoredExperiment {
 
 export type ActionResult = { ok: true; key: string } | { ok: false; error: string };
 
+/**
+ * The outcome of a bulk operation over several experiment keys. Partial-failure
+ * by design (see lib/store.ts's bulkSetActive/bulkDelete): every key is tried,
+ * `changed` lists the keys a row was actually written for, `failed` pairs each
+ * remaining key with why (missing / another tenant's / a DB error, or the
+ * editor-gate error when the whole call was denied). Lives here — the pure,
+ * client-safe contract module — so the store, the server actions AND the client
+ * table can all name the same shape without importing server-only code.
+ */
+export interface BulkActionResult {
+  changed: string[];
+  failed: { key: string; error: string }[];
+}
+
 // ---------------------------------------------------------------------------
 // Reference data (single source of truth for the form selects + validation)
 // ---------------------------------------------------------------------------
@@ -244,6 +258,58 @@ export function youtrackTicketHref(ticket: string, baseUrl: string): string | nu
  */
 export function keyFromIdOrName(uniqueId: string, name: string): string {
   return slugify(uniqueId) || slugify(name);
+}
+
+// ---------------------------------------------------------------------------
+// Clone — derive a NEW experiment input from an existing one.
+// ---------------------------------------------------------------------------
+
+/**
+ * The name for a clone: swap the EXP id token for `newExpId` so the copy gets
+ * its own counter id (EXP001 → EXP007) while keeping the rest of the 4-part
+ * schema. A hand-edited name with no EXP id can't be re-slotted, so it just
+ * gains a " (copy)" suffix — still distinct from its source.
+ */
+export function cloneName(sourceName: string, newExpId: string): string {
+  return EXP_ID_RE.test(sourceName)
+    ? sourceName.replace(EXP_ID_RE, newExpId)
+    : `${sourceName} (copy)`;
+}
+
+/**
+ * Build the ExperimentInput for a CLONE of `source`, given a freshly-allocated
+ * `newExpId` (the caller derives it via nextExpId over every live+archived
+ * key/name). A clone is a brand-new test seeded from an existing one:
+ *   - key + EXP id are fresh — experiment.key is a global PK, so a copied key
+ *     would collide;
+ *   - the name is recomposed with the new id (cloneName);
+ *   - the YouTrack ticket is CLEARED — a new test tracks its own ticket, never
+ *     inherits the source's;
+ *   - it starts PAUSED (active:false — the new-test default, so it can be
+ *     reviewed / A-A-checked before taking real traffic);
+ *   - business, goal metric, description, start date and the full variant set
+ *     (splits, control, theme slugs) copy verbatim — they already satisfy
+ *     validateInput, so the clone is immediately valid.
+ * Pure: the caller allocates newExpId and persists the result.
+ */
+export function buildCloneInput(source: StoredExperiment, newExpId: string): ExperimentInput {
+  const name = cloneName(source.name, newExpId);
+  return {
+    name,
+    key: keyFromIdOrName(newExpId, name),
+    business: source.business,
+    goalMetric: source.goalMetric,
+    startDate: source.startDate,
+    description: source.description || undefined,
+    youtrackTicket: "",
+    active: false,
+    variants: source.variants.map((v) => ({
+      key: v.key,
+      rolloutPercentage: v.rolloutPercentage,
+      themeSlug: v.themeSlug,
+      isControl: v.isControl,
+    })),
+  };
 }
 
 // ---------------------------------------------------------------------------

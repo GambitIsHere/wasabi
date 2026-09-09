@@ -238,6 +238,11 @@ async function doCreateSchema(): Promise<void> {
   await sql`ALTER TABLE archived_variant ADD COLUMN IF NOT EXISTS rebill_r2 REAL`;
   await sql`ALTER TABLE archived_variant ADD COLUMN IF NOT EXISTS rebill_r3 REAL`;
   await sql`ALTER TABLE archived_variant ADD COLUMN IF NOT EXISTS net_rev_per_acquired REAL`;
+  // Idempotent migration for the theme route carried onto a native completion (a
+  // live experiment frozen into the archive), so a later Restore can rebuild the
+  // exact storefront routing. Nullable — a plain VWO import has no theme slug and
+  // leaves it null (Restore then falls back to the variant key as the slug).
+  await sql`ALTER TABLE archived_variant ADD COLUMN IF NOT EXISTS theme_slug TEXT`;
 
   // Event log — the assignment side of the live cockpit feed. /api/capture is a
   // public, unauthenticated endpoint; before this table it discarded every event

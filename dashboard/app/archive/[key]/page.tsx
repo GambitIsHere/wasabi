@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getArchived, type ArchivedExperiment } from "@/lib/archive";
 import { STATUS, fmtDate } from "@/lib/archive-format";
 import { ArchivedRunDetail } from "@/components/archive/ArchivedRunDetail";
+import { RestoreArchivedButton } from "@/components/archive/RestoreArchivedButton";
 
 // DB-backed — resolve each archived key on request (routes aren't known at build).
 export const dynamic = "force-dynamic";
@@ -55,16 +56,19 @@ export default async function ArchivedDetailPage({
           <h1 className="max-w-3xl font-display text-3xl font-bold tracking-tight text-fg sm:text-4xl">
             {exp.name}
           </h1>
-          {exp.sourceUrl && (
-            <a
-              href={exp.sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="shrink-0 font-mono text-xs text-info hover:underline"
-            >
-              report ↗
-            </a>
-          )}
+          <div className="flex shrink-0 items-start gap-3">
+            {exp.sourceUrl && (
+              <a
+                href={exp.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 font-mono text-xs text-info hover:underline"
+              >
+                report ↗
+              </a>
+            )}
+            <RestoreArchivedButton archivedKey={exp.key} />
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-faint">

@@ -20,6 +20,7 @@ import { getSql, createSchema } from "./db";
 import type { FeatureFlag } from "./engine/types";
 import type { RegisteredExperiment } from "./experiments";
 import type {
+  BulkActionResult,
   ExperimentInput,
   StoredExperiment,
   VariantInput,
@@ -275,6 +276,46 @@ export async function deleteExperiment(key: string): Promise<boolean> {
   const projectId = await getCurrentProjectId();
   const rows = (await sql`DELETE FROM experiment WHERE key = ${key} AND project_id = ${projectId} RETURNING key`) as unknown as unknown[];
   return rows.length > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Bulk writes — pause/activate or delete many at once.
+// ---------------------------------------------------------------------------
+
+/**
+ * Run a single-key write over every key with per-key isolation, aggregating the
+ * outcome the way lib/archive.ts's upsertManyArchived does: one failing key
+ * never aborts the rest. `op` is the existing tenant-scoped single op, so all
+ * tenant scoping (getCurrentProjectId) and readiness (ensureReady) is inherited
+ * unchanged — a key that matches no row in the current tenant (missing, or owned
+ * by another tenant) returns false and lands in `failed`; a thrown DB error is
+ * caught and its message recorded there too.
+ */
+async function aggregateBulk(
+  keys: string[],
+  op: (key: string) => Promise<boolean>,
+): Promise<BulkActionResult> {
+  const changed: string[] = [];
+  const failed: { key: string; error: string }[] = [];
+  for (const key of keys) {
+    try {
+      if (await op(key)) changed.push(key);
+      else failed.push({ key, error: `No experiment with key "${key}".` });
+    } catch (err) {
+      failed.push({ key, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return { changed, failed };
+}
+
+/** Pause/activate many experiments. Partial-failure: see aggregateBulk. */
+export function bulkSetActive(keys: string[], active: boolean): Promise<BulkActionResult> {
+  return aggregateBulk(keys, (key) => setActive(key, active));
+}
+
+/** Delete many experiments (variants cascade). Partial-failure: see aggregateBulk. */
+export function bulkDelete(keys: string[]): Promise<BulkActionResult> {
+  return aggregateBulk(keys, (key) => deleteExperiment(key));
 }
 
 // ---------------------------------------------------------------------------
