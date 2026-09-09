@@ -79,17 +79,47 @@ async function doCreateSchema(): Promise<void> {
   // One org per verified domain. verified_domain gates who may self-register
   // into an org (app/api/register/route.ts) and lazy membership provisioning
   // (lib/authz.ts), so two orgs sharing a domain would let one org's users
-  // register into the other. A partial, case-insensitive UNIQUE index makes
-  // that impossible by construction. NULL stays exempt (the WHERE clause) — an
-  // org with no verified domain configured is allowed, and many may coexist.
-  // Safe as an automatic migration: the only writers today (scripts/
-  // migrate-tenancy.ts, scripts/create-gp-603.ts) both upsert the single Sanjow
-  // row, so no existing duplicate can make this index creation fail.
+  // register into the other. A partial UNIQUE index makes that impossible by
+  // construction. NULL stays exempt (the WHERE clause) — an org with no verified
+  // domain configured is allowed, and many may coexist.
+  //
+  // #27: the index key MUST normalise the SAME way the app does before it
+  // compares domains — lib/domain-restriction.ts's normalizeDomain() is
+  // trim + strip leading "@" + lowercase. The first cut keyed on lower() ALONE,
+  // so "sanjow.com", " sanjow.com" and "@sanjow.com" were three distinct keys
+  // but one domain to the app — a whitespace/@ variant could slip a duplicate
+  // past once an org-write path exists. lower(btrim(verified_domain, ' @'))
+  // strips leading/trailing spaces and "@" then lowercases, matching (and, for
+  // trailing junk, slightly exceeding) normalizeDomain, so the variants collapse
+  // to one key. If normalizeDomain ever changes, change this expression with it.
+  //
+  // The name changes (…_norm_idx) and the old lower()-only index is DROPped
+  // first: CREATE UNIQUE INDEX IF NOT EXISTS on the ORIGINAL name would no-op on
+  // an already-migrated DB and silently keep the weaker key. DROP IF EXISTS makes
+  // this correct whether the old index is present (already deployed) or not
+  // (fresh DB).
+  //
+  // BRICK-RISK (createSchema is memoised on the read path — first query per
+  // process awaits it): if the organization table ALREADY holds two rows whose
+  // domains are equal under this normalisation (e.g. "sanjow.com" and
+  // "@sanjow.com", or a case/whitespace variant), CREATE UNIQUE INDEX throws and
+  // every request that awaits createSchema fails — the app bricks until the
+  // duplicate is resolved by hand. Safe today: the only writers (scripts/
+  // migrate-tenancy.ts, scripts/create-gp-603.ts) both upsert the single, clean
+  // Sanjow row, so no colliding pair can exist. Revisit before any bulk org
+  // import lands.
+  await sql`DROP INDEX IF EXISTS organization_verified_domain_idx`;
   await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS organization_verified_domain_idx
-      ON organization (lower(verified_domain))
+    CREATE UNIQUE INDEX IF NOT EXISTS organization_verified_domain_norm_idx
+      ON organization (lower(btrim(verified_domain, ' @')))
       WHERE verified_domain IS NOT NULL
   `;
+  // #27 (future org-write path — not built yet): when a create/edit-org path
+  // lands, wrap its INSERT/UPDATE of verified_domain with the existing
+  // isUniqueViolation() check (lib/users.ts) and return a friendly 409, mirroring
+  // app/api/register/route.ts — a raw 23505 from this index must never surface to
+  // the user. Documented here, at the constraint, rather than implemented, since
+  // no such write site exists to wrap today.
   await sql`
     CREATE TABLE IF NOT EXISTS project (
       id         TEXT PRIMARY KEY,

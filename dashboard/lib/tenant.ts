@@ -167,11 +167,21 @@ export interface TenantResolution {
  * a session, to show the right branding/domain restriction before anyone has
  * signed in).
  */
-export async function resolveTenantOrgId(): Promise<TenantResolution | null> {
-  // Dynamic import — see this file's header comment ("DYNAMIC IMPORTS,
-  // DELIBERATELY") for why this can't be a top-level VALUE `import`.
-  const { auth } = await import("@/auth");
-  const session = await auth();
+export async function resolveTenantOrgId(
+  preResolvedSession?: Session | null,
+): Promise<TenantResolution | null> {
+  // A caller that already resolved the session this request (lib/authz.ts's
+  // requireRole does — it needs the email first) may thread it in so we don't
+  // call auth() a second time (#30, minor perf). `undefined` means "not passed,
+  // resolve it here"; an explicit `null` (a genuinely session-less request) is
+  // honoured as-is and falls through to the subdomain branch below.
+  let session = preResolvedSession;
+  if (session === undefined) {
+    // Dynamic import — see this file's header comment ("DYNAMIC IMPORTS,
+    // DELIBERATELY") for why this can't be a top-level VALUE `import`.
+    const { auth } = await import("@/auth");
+    session = await auth();
+  }
   if (session?.orgId) {
     return resolveForAuthenticatedSession(session, session.orgId);
   }
@@ -238,6 +248,13 @@ async function resolveForAuthenticatedSession(
   // Not a member (or no resolvable user id) → the session org wins, exactly as
   // before the host-switch existed. Failing to the session org here is the
   // safe default: we never resolve to an org the user has no membership in.
+  //
+  // #30 (product decision, deliberately NOT changed here): on a host/session
+  // mismatch for a non-member this fails SAFE (confine the request to the
+  // caller's own session org) rather than fail CLOSED (hard-deny the request).
+  // Confining is not a cross-tenant leak — the user only ever reaches their own
+  // org — so hard-denying instead is a UX/product call (Srikant owns it), not a
+  // security fix. Left as fail-safe; flip to a deny here only on that sign-off.
   return { orgId: sessionOrgId, source: "session" };
 }
 
@@ -332,8 +349,8 @@ export async function getCurrentTenant(): Promise<TenantContext> {
  *  throw for a project-less tenant, which the page then "handled" by falling
  *  back to Sanjow's hardcoded roadmap — a cross-tenant leak. Failing closed
  *  (throw) only when NEITHER session nor subdomain resolves an org at all. */
-export async function getCurrentOrgId(): Promise<string> {
-  const resolution = await resolveTenantOrgId();
+export async function getCurrentOrgId(preResolvedSession?: Session | null): Promise<string> {
+  const resolution = await resolveTenantOrgId(preResolvedSession);
   if (!resolution) {
     throw new Error(
       "getCurrentOrgId: no session and no resolvable subdomain org — refusing to guess a " +

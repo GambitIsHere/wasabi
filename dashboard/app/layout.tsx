@@ -63,6 +63,9 @@ export default async function RootLayout({
   // claim (cheap, no DB round-trip) — the /settings page and its actions
   // re-authorize against the DB, so this is a UX decision, not a gate. A
   // pre-migration session with no `role` claim simply won't see the link.
+  // #30: this is a STALE-claim read on purpose (a demoted admin may keep seeing
+  // the link until the 30-day JWT refreshes) — UI-only and harmless, because
+  // /settings + every members action re-check the live DB role server-side.
   const session = await auth();
   const canManageOrg = Boolean(session?.role && roleAtLeast(session.role, "admin"));
 

@@ -7,34 +7,33 @@
 // full privilege model) — this page is deliberately the onboarding half, not a
 // second member directory.
 // ----------------------------------------------------------------------------
-// Auth-gated the same way it always was: middleware.ts proves "signed in", this
-// page's own roleAtLeast(session.role, "admin") check decides "may see member
-// management" — kept as a plain session-JWT read (not lib/authz.ts's
-// requireRole(), which re-derives from the DB) because this is a RENDERING
-// decision, not a mutation; every actual mutation lives in
-// app/admin/members/actions.ts, which DOES call requireRole() on every call
-// (re-derived from the database, live — see that file's header). A demoted
-// admin therefore still sees this page until their JWT refreshes (same
-// documented trade-off as every other session-role read in this codebase —
-// auth.config.ts's jwt callback header comment), but can perform exactly
-// nothing once here, because the actions re-check independently.
+// Auth-gated via lib/authz.requireRole("admin") (#29) — the SAME DB-derived gate
+// app/admin/members/actions.ts and app/settings/page.tsx use, NOT a plain
+// session.role/session.orgId read. Two things that fixes over the old JWT read:
+//   (a) HOST-SWITCH: requireRole hands back auth.orgId resolved through the
+//       host-switch-aware path (getCurrentOrgId), so an admin viewing org B's
+//       host lists org B's pending members — not, as before, their session
+//       org A's. The list and the approve action now agree on the org.
+//   (b) STALE ROLE: the role is re-derived from the membership table live, so a
+//       demoted admin loses this page immediately, not up to 30 days later when
+//       the JWT expires.
+// Every mutation still re-checks independently in actions.ts — the page gate is
+// defence-in-depth, not the sole boundary.
 // ============================================================================
-import { auth } from "@/auth";
+import { requireRole } from "@/lib/authz";
 import { ApproveMemberButton } from "@/components/admin/ApproveMemberButton";
 import { InviteMemberForm } from "@/components/admin/InviteMemberForm";
 import { PendingInvitesTable, type PendingInviteRow } from "@/components/admin/PendingInvitesTable";
 import { listPendingInvitations } from "@/lib/invitations";
 import { listPendingMembersForOrg } from "@/lib/membership";
-import { roleAtLeast } from "@/lib/roles";
 import { getUserById } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
 
 export default async function MembersAdminPage() {
-  const session = await auth();
-  const canManage = Boolean(session?.role && roleAtLeast(session.role, "admin"));
+  const auth = await requireRole("admin");
 
-  if (!session?.orgId || !canManage) {
+  if (!auth.ok) {
     return (
       <div
         role="alert"
@@ -45,7 +44,7 @@ export default async function MembersAdminPage() {
     );
   }
 
-  const orgId = session.orgId;
+  const orgId = auth.orgId;
 
   const [pendingMembers, invitations] = await Promise.all([
     listPendingMembersForOrg(orgId),
