@@ -10,23 +10,15 @@
 // app/register-actions.ts on every registration, that a follow-up batch
 // swaps for a real provider without touching the registration flow at all.
 //
-// isEmailProviderConfigured() is the single source of truth for "do we have
-// a sender" — app/register-actions.ts uses it to decide which success
-// message to show (check your email vs. an admin will need to approve you),
-// and this file's own header/`.env.example`'s comment make the unconfigured
-// state impossible to miss rather than something that silently no-ops.
+// isEmailProviderConfigured() is the single source of truth for "do we have a
+// sender" — app/register-actions.ts uses it to decide which success message to
+// show (check your email vs. an admin will need to approve you). It now lives
+// in lib/email.ts so this seam and lib/email.ts's sendInvitationEmail() share
+// ONE definition and can never silently disagree about whether a provider
+// exists; this file imports it rather than keeping its own copy (RESEND_API_KEY
+// is still the placeholder convention — see lib/email.ts's own header).
 // ============================================================================
-
-/** RESEND_API_KEY is the placeholder convention (Resend is the common choice
- *  for a Next.js/Vercel stack) — no @resend/node dependency is installed and
- *  no route exists for a verification link to land on, so setting this key
- *  today would NOT make verification emails start sending; it only flips
- *  isEmailProviderConfigured() to true, which sendVerificationEmail() below
- *  would then need a real implementation to honour. Documented in
- *  .env.example alongside every other optional integration. */
-function isEmailProviderConfigured(): boolean {
-  return Boolean(process.env.RESEND_API_KEY?.trim());
-}
+import { isEmailProviderConfigured } from "./email";
 
 export interface VerificationEmailTarget {
   id: string;

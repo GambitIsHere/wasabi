@@ -28,6 +28,9 @@
 //   • /api/auth/*                  — OAuth + credentials callback handlers (would infinite-loop otherwise)
 //   • /api/register                — self-registration (rate-limited inside — see app/api/register/route.ts)
 //   • /signin, /register           — the sign-in / sign-up pages themselves
+//   • /accept-invite               — redeem an invite; the PRIMARY visitor is an off-domain
+//                                    invitee with NO account/session yet (app/accept-invite),
+//                                    so gating this to /signin would make the invite un-redeemable
 //   • /handover.html               — public CTO handover / install doc
 //
 // Runs on the Edge runtime.
@@ -89,6 +92,7 @@ const PUBLIC_PREFIXES = [
   "/api/register",
   "/signin",
   "/register",
+  "/accept-invite", // redeem an invite without a session — see this file's header (PUBLIC list)
   "/handover.html",
   "/icon.svg", // favicon — must load on the sign-in page / logged-out tabs
   "/apple-icon.png", // iOS home-screen icon — fetchable without auth
