@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ExperimentForm, type GoalMetricOption } from "@/components/ExperimentForm";
+import { SampleSizeCalculator } from "@/components/SampleSizeCalculator";
 import {
   BUSINESSES,
   THEME_SLUGS,
@@ -106,6 +107,11 @@ export default async function NewExperimentPage({
           slugged from the Unique ID and becomes the flag the engine assigns on.
         </p>
       </div>
+
+      {/* Planning aid — sizes the test from typed numbers. Rendered outside the
+          form so it shares no state with experiment creation and can't touch
+          assignment or capture; see components/SampleSizeCalculator.tsx. */}
+      <SampleSizeCalculator />
 
       <ExperimentForm
         mode="create"

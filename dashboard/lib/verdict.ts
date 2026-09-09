@@ -191,8 +191,12 @@ export interface Verdict {
 /**
  * Gauss error function via Abramowitz & Stegun 7.1.26 (max abs error ~1.5e-7).
  * Good to ~6 decimals — far tighter than any A/B decision needs.
+ *
+ * Exported so lib/ab-stats.ts (the plan-side calculator) shares this ONE
+ * numeric core rather than shipping a second erf implementation — see that
+ * file's header.
  */
-function erf(x: number): number {
+export function erf(x: number): number {
   // erf is odd: erf(-x) = -erf(x). Compute on |x| and reapply the sign.
   const sign = x < 0 ? -1 : 1;
   const ax = Math.abs(x);
@@ -209,8 +213,9 @@ function erf(x: number): number {
   return sign * y;
 }
 
-/** Standard-normal CDF Φ(x) = P(Z ≤ x), built from erf. */
-function normalCdf(x: number): number {
+/** Standard-normal CDF Φ(x) = P(Z ≤ x), built from erf. Exported for
+ *  lib/ab-stats.ts (shared numeric core — see erf above). */
+export function normalCdf(x: number): number {
   return 0.5 * (1 + erf(x / Math.SQRT2));
 }
 
@@ -222,8 +227,12 @@ function normalCdf(x: number): number {
  * estimate gives the standard error of the difference. This is the textbook
  * test for comparing two binomial proportions (auth_rate, rebill_rate, and
  * any other "ratio" metric in the registry).
+ *
+ * Exported so lib/ab-stats.ts's analyzeTwoProportion is a thin wrapper over
+ * this exact test (plus uplift + a CI) rather than a second z-test — one
+ * numeric core for both the plan side and the results side.
  */
-function twoProportionZTest(
+export function twoProportionZTest(
   s1: number, n1: number, // variant: successes, trials
   s2: number, n2: number, // control: successes, trials
 ): { z: number; p: number } {
