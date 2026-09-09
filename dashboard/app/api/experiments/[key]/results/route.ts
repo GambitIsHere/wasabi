@@ -11,7 +11,26 @@ import { runResults } from "@/lib/metabase";
 import { buildVerdict } from "@/lib/verdict";
 import { getMetrics } from "@/lib/metrics";
 import { resultsCacheKeyParts } from "@/lib/results-cache";
+import { assignmentSplitForExperiment } from "@/lib/events";
+import { srmCheck } from "@/lib/ab-stats";
 import type { VariantRow } from "@/lib/verdict";
+
+/** What the client needs to render the SRM early warning, or null when the
+ *  check cannot run yet (no assignments stored, or fewer than two arms). */
+export interface SrmPayload {
+  available: true;
+  arms: Array<{ variant: string; visitors: number; weight: number }>;
+  totalVisitors: number;
+  chiSquare: number;
+  pValue: number;
+  mismatch: boolean;
+  window: {
+    oldestTs: string | null;
+    newestTs: string | null;
+    retentionDays: number;
+    capped: boolean;
+  };
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,7 +90,55 @@ export async function GET(
     // render labels/units/decimals from the SAME registry snapshot the
     // verdict was computed against — never a second, possibly-stale fetch,
     // and never a hardcoded label map (see LiveResults.tsx's header).
-    return NextResponse.json({ available: true, rows, verdict, metrics });
+    // SRM rides alongside the verdict but is computed from a DIFFERENT source:
+    // assignment events, not the payment P&L above. It is deliberately NOT
+    // inside the cached block — the assignment read is a cheap local query, and
+    // an early warning that is 45 seconds stale is worth less than a live one.
+    //
+    // It never fails the response. A missing table, an empty window or a
+    // single-arm result yields srm: null and the panel says the check is not
+    // available yet, because a broken early-warning must not take the results
+    // page down with it.
+    let srm: SrmPayload | null = null;
+    try {
+      const split = await assignmentSplitForExperiment(key);
+      // Order the observed counts to match the experiment's declared arms, so
+      // the expected split lines up arm-for-arm. An arm with no assignments yet
+      // contributes a zero rather than being dropped, which is what makes a
+      // never-assigned arm visible instead of silently excluded.
+      const declared = experiment.flag.variants ?? [];
+      const arms: Array<{ variant: string; visitors: number; weight: number }> =
+        declared.map((v) => ({
+          variant: v.key,
+          visitors: split.counts.find((c) => c.variant === v.key)?.visitors ?? 0,
+          weight: v.rolloutPercentage,
+        }));
+      const totalVisitors = arms.reduce((sum: number, a) => sum + a.visitors, 0);
+      if (arms.length >= 2 && totalVisitors > 0) {
+        const check = srmCheck(
+          arms.map((a) => a.visitors),
+          arms.map((a) => a.weight),
+        );
+        srm = {
+          available: true,
+          arms,
+          totalVisitors,
+          chiSquare: check.chiSquare,
+          pValue: check.pValue,
+          mismatch: check.mismatch,
+          window: {
+            oldestTs: split.oldestTs,
+            newestTs: split.newestTs,
+            retentionDays: split.retentionDays,
+            capped: split.capped,
+          },
+        };
+      }
+    } catch {
+      srm = null; // early warning unavailable; results still render
+    }
+
+    return NextResponse.json({ available: true, rows, verdict, metrics, srm });
   } catch (err) {
     const reason = err instanceof Error ? err.message : "Failed to build verdict";
     return NextResponse.json({ available: false, reason });

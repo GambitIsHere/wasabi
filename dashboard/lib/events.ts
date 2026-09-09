@@ -194,6 +194,81 @@ export async function recentAssignments(limit: number): Promise<StoredEventRow[]
   }));
 }
 
+/** One arm's share of the assignment events still inside the retention window. */
+export interface VariantAssignmentCount {
+  variant: string;
+  /** DISTINCT visitors, not raw events — a returning visitor re-firing
+   *  assignment must not count twice or the split reads skewed. */
+  visitors: number;
+}
+
+/** Per-arm assignment counts for one experiment, plus the window they cover. */
+export interface AssignmentSplit {
+  counts: VariantAssignmentCount[];
+  /** Oldest and newest assignment ts still stored, ISO, or null when empty.
+   *  The panel states these: the event table is pruned to RETENTION_DAYS with a
+   *  per-project HARD_CAP, so this is a ROLLING window, never the experiment's
+   *  lifetime. A split computed here is an early warning, not a final audit. */
+  oldestTs: string | null;
+  newestTs: string | null;
+  /** Days of retention configured, so the reader can see what "the window" is
+   *  without reading this file. */
+  retentionDays: number;
+  /** True when this project is at the row cap, meaning the window shown is
+   *  shorter than retentionDays and the oldest assignments have been dropped.
+   *  Uneven pruning across arms would bias the split, so a capped window is
+   *  reported rather than silently used. */
+  capped: boolean;
+}
+
+/**
+ * Per-arm DISTINCT-visitor assignment counts for one experiment, for the SRM
+ * check on the results page.
+ *
+ * WHY NOT VariantRow: the results payload carries payment-side figures
+ * (appsAcquired, firstPaid, …), all of them downstream of assignment. Running a
+ * sample-ratio test on those would not measure the split — it would measure
+ * conversion differences between arms and call them a mismatch, which on a
+ * genuinely winning arm fires constantly. SRM has to read assignment itself.
+ *
+ * WINDOW: whatever survives pruning. The caller gets oldestTs/newestTs/capped
+ * so the UI can say so rather than implying a lifetime count.
+ */
+export async function assignmentSplitForExperiment(
+  experimentKey: string,
+): Promise<AssignmentSplit> {
+  await createSchema();
+  const sql = getSql();
+  const projectId = await getCurrentProjectId();
+
+  const rows = (await sql`
+    SELECT variant, COUNT(DISTINCT distinct_id)::int AS visitors,
+           MIN(ts) AS oldest, MAX(ts) AS newest
+    FROM event
+    WHERE kind = 'assignment'
+      AND experiment_key = ${experimentKey}
+      AND variant IS NOT NULL
+      AND project_id = ${projectId}
+    GROUP BY variant
+    ORDER BY variant ASC
+  `) as unknown as Array<{ variant: string; visitors: number; oldest: string | null; newest: string | null }>;
+
+  const counts = rows.map((r) => ({ variant: r.variant, visitors: r.visitors }));
+  const oldestTs = rows.reduce<string | null>(
+    (a, r) => (r.oldest && (!a || r.oldest < a) ? r.oldest : a), null);
+  const newestTs = rows.reduce<string | null>(
+    (a, r) => (r.newest && (!a || r.newest > a) ? r.newest : a), null);
+
+  // At or above the cap, the oldest rows for this project have been dropped and
+  // the window is shorter than it looks.
+  const totalForProject = (await sql`
+    SELECT COUNT(*)::int AS n FROM event WHERE project_id = ${projectId}
+  `) as unknown as Array<{ n: number }>;
+  const capped = (totalForProject[0]?.n ?? 0) >= HARD_CAP;
+
+  return { counts, oldestTs, newestTs, retentionDays: RETENTION_DAYS, capped };
+}
+
 /** One business's assignment count for today. */
 export interface AssignmentBusinessCount {
   business: string;
