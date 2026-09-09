@@ -26,12 +26,15 @@ import type { MetricDef } from "@/lib/metrics-core";
 import { metricValue, isImprovement } from "@/lib/metrics-core";
 import { formatMetric, formatRelativeDelta } from "@/lib/format-metric";
 import { VerdictPill, ControlBadge } from "@/components/pills";
+import type { SrmPayload } from "@/app/api/experiments/[key]/results/route";
+import { isAA, describeWindow } from "@/lib/assignment-split";
 
 interface ResultsBody {
   available: boolean;
   rows?: VariantRow[];
   verdict?: Verdict;
   metrics?: MetricDef[];
+  srm?: SrmPayload | null;
   reason?: string;
 }
 
@@ -39,7 +42,13 @@ type FetchState =
   | { status: "loading" }
   | { status: "empty"; reason: string }
   | { status: "error"; message: string }
-  | { status: "ready"; rows: VariantRow[]; verdict: Verdict; metrics: MetricDef[] };
+  | {
+      status: "ready";
+      rows: VariantRow[];
+      verdict: Verdict;
+      metrics: MetricDef[];
+      srm: SrmPayload | null;
+    };
 
 interface Props {
   experimentKey: string;
@@ -66,6 +75,7 @@ export function LiveResults({ experimentKey }: Props) {
             status: "ready",
             rows: body.rows,
             verdict: body.verdict,
+            srm: body.srm ?? null,
             metrics: body.metrics ?? [],
           });
         } else {
@@ -115,7 +125,12 @@ export function LiveResults({ experimentKey }: Props) {
       ) : state.status === "empty" ? (
         <ResultsEmpty reason={state.reason} />
       ) : (
-        <ResultsReady rows={state.rows} verdict={state.verdict} metrics={state.metrics} />
+        <ResultsReady
+          rows={state.rows}
+          verdict={state.verdict}
+          metrics={state.metrics}
+          srm={state.srm}
+        />
       )}
     </div>
   );
@@ -141,6 +156,130 @@ function signed(n: number, unit: "pp" | "£" | "%") {
 }
 
 // ---------------------------------------------------------------------------
+// Assignment integrity — the SRM early warning
+// ---------------------------------------------------------------------------
+
+/**
+ * Sample ratio mismatch: did the arms actually receive the traffic split they
+ * were configured for?
+ *
+ * TWO THINGS THIS PANEL IS CAREFUL ABOUT.
+ *
+ * It reads ASSIGNMENT events, not the payment figures in the table below. A
+ * ratio test run on conversions would flag any arm that genuinely converts
+ * better, which is the opposite of useful.
+ *
+ * And it covers a ROLLING WINDOW, not the experiment's life. The event table is
+ * pruned to a retention window with a per-project row cap, so the window is
+ * stated on the panel and a capped window says so. An SRM here is an early
+ * warning worth investigating, never a final audit.
+ *
+ * The threshold is p < 0.001, not 0.05: this runs on every experiment, and at
+ * 0.05 one test in twenty would cry wolf.
+ */
+/** Why an A/A page reads differently. Rendered in both the populated and the
+ *  not-yet-any-assignments states, because it is true in both. */
+function AATestNote() {
+  return (
+    <p className="mt-3 rounded-lg bg-bg-deep p-3 text-xs leading-relaxed text-muted">
+      <span className="font-semibold text-fg">This is an A/A test.</span> Every
+      arm serves the same page, so no difference between them can be real. The
+      verdict below should read <em>not significant</em> indefinitely — if it
+      ever names a winner, that is a bug in the results pipeline, not a result.
+      The split above is the number worth watching here.
+    </p>
+  );
+}
+
+function AssignmentIntegrity({
+  srm,
+  isAATest,
+}: {
+  srm: SrmPayload | null;
+  isAATest: boolean;
+}) {
+  if (!srm) {
+    // No split to show yet — but on an A/A the explanation is the reason this
+    // panel leads the page, and it is true before the first assignment lands.
+    // Dropping it here would hide the warning exactly when the page is most
+    // likely to be read for the first time.
+    return (
+      <div className="rounded-xl border border-line bg-surface p-5">
+        <h3 className="font-display text-sm font-semibold text-fg">
+          Assignment integrity
+        </h3>
+        <p className="mt-1 text-xs text-muted">
+          No assignments recorded yet for this experiment, so the split cannot be
+          checked. This fills in once traffic starts arriving.
+        </p>
+        {isAATest && <AATestNote />}
+      </div>
+    );
+  }
+
+  const { arms, totalVisitors, chiSquare, pValue, mismatch, window: win } = srm;
+  const pct = (n: number) => (totalVisitors ? (n / totalVisitors) * 100 : 0);
+  const expectedTotal = arms.reduce((sum, a) => sum + a.weight, 0) || 1;
+
+  return (
+    <div
+      className={`rounded-xl border bg-surface p-5 ${
+        mismatch ? "border-bad" : "border-line"
+      }`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-display text-sm font-semibold text-fg">
+            Assignment integrity
+          </h3>
+          <p className="mt-0.5 text-xs text-muted">
+            Did each arm get the traffic it was configured for?
+          </p>
+        </div>
+        <span
+          className={`rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider ${
+            mismatch
+              ? "border-bad bg-bad/10 text-bad"
+              : "border-good/40 bg-good/10 text-good"
+          }`}
+        >
+          {mismatch ? "Mismatch — investigate" : "Split looks right"}
+        </span>
+      </div>
+
+      <div className="mt-4 space-y-1.5">
+        {arms.map((a) => {
+          const expected = (a.weight / expectedTotal) * 100;
+          const actual = pct(a.visitors);
+          return (
+            <div
+              key={a.variant}
+              className="grid grid-cols-[minmax(80px,1fr)_auto_auto] items-center gap-3 text-xs"
+            >
+              <code className="font-mono text-fg">{a.variant}</code>
+              <span className="font-mono tabular-nums text-muted">
+                {a.visitors.toLocaleString()} visitors
+              </span>
+              <span className="font-mono tabular-nums text-faint">
+                {actual.toFixed(1)}% vs {expected.toFixed(0)}% expected
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="mt-4 border-t border-line pt-3 font-mono text-[11px] text-faint">
+        chi-square {chiSquare.toFixed(2)} · p {pValue < 0.0001 ? "< 0.0001" : pValue.toFixed(4)}{" "}
+        · flags below 0.001 · {totalVisitors.toLocaleString()} visitors{" "}
+        {describeWindow(win)}
+      </p>
+
+      {isAATest && <AATestNote />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Ready state
 // ---------------------------------------------------------------------------
 
@@ -148,17 +287,26 @@ function ResultsReady({
   rows,
   verdict,
   metrics,
+  srm,
 }: {
   rows: VariantRow[];
   verdict: Verdict;
   metrics: MetricDef[];
+  srm: SrmPayload | null;
 }) {
+  // An A/A is detectable from the data rather than a flag: every arm points at
+  // the SAME storefront slug, so the arms are identical by construction and no
+  // difference between them can be real. That changes what this page should
+  // lead with — see AssignmentIntegrity.
+  const isAATest = isAA(rows.map((r) => r.themeSlug));
   // Experiment display currency — the dominant transacted currency across arms.
   const expCcy = rows.find((r) => r.currency)?.currency;
   const hasAds = rows.some((r) => (r.adClicks ?? 0) > 0);
 
   return (
     <div className="space-y-6">
+      {isAATest && <AssignmentIntegrity srm={srm} isAATest={isAATest} />}
+
       {/* Verdict header */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface p-5">
         <div>
@@ -187,6 +335,11 @@ function ResultsReady({
       />
       <WinnersGrid verdict={verdict} metrics={metrics} ccy={expCcy} />
       <Narrative narrative={verdict.narrative} />
+
+      {/* On a real experiment the verdict leads and this sits underneath as a
+          sanity check. On an A/A it is rendered ABOVE instead, because there the
+          split is the only number that can be meaningful. */}
+      {!isAATest && <AssignmentIntegrity srm={srm} isAATest={false} />}
     </div>
   );
 }
