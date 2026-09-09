@@ -13,6 +13,8 @@ import { getMetrics } from "@/lib/metrics";
 import { resultsCacheKeyParts } from "@/lib/results-cache";
 import { assignmentSplitForExperiment } from "@/lib/events";
 import { srmCheck } from "@/lib/ab-stats";
+import { alignArmsToDeclared } from "@/lib/assignment-split";
+import { withTimeout } from "@/lib/with-timeout";
 import type { VariantRow } from "@/lib/verdict";
 
 /** What the client needs to render the SRM early warning, or null when the
@@ -34,6 +36,14 @@ export interface SrmPayload {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// A short, dedicated budget for the SRM read. It sits OUTSIDE unstable_cache
+// by design, so every request pays it — including a cache hit on the verdict
+// above. Deliberately well under the Metabase budget: this is a secondary
+// early warning, and it must give up long before the primary results would.
+// On expiry the catch below yields srm: null and the panel says the check is
+// unavailable, which is strictly better than holding the page open.
+const SRM_TIMEOUT_MS = 2_500;
 
 // The Metabase P&L read is cached this long. Same window the home cockpit uses
 // for the identical query (app/page.tsx's loadVerdictCached) — verdicts barely
@@ -92,27 +102,25 @@ export async function GET(
     // and never a hardcoded label map (see LiveResults.tsx's header).
     // SRM rides alongside the verdict but is computed from a DIFFERENT source:
     // assignment events, not the payment P&L above. It is deliberately NOT
-    // inside the cached block — the assignment read is a cheap local query, and
-    // an early warning that is 45 seconds stale is worth less than a live one.
+    // inside the cached block — an early warning that is 45 seconds stale is
+    // worth less than a live one. Because that means EVERY request pays this
+    // read, including a cache hit on the verdict above, it is bounded by
+    // SRM_TIMEOUT_MS rather than trusted to be quick.
     //
-    // It never fails the response. A missing table, an empty window or a
-    // single-arm result yields srm: null and the panel says the check is not
-    // available yet, because a broken early-warning must not take the results
-    // page down with it.
+    // It never fails the response. A missing table, an empty window, a
+    // single-arm result, or a stall past the budget yields srm: null and the
+    // panel says the check is not available yet, because a broken early warning
+    // must not take the results page down with it.
     let srm: SrmPayload | null = null;
     try {
-      const split = await assignmentSplitForExperiment(key);
-      // Order the observed counts to match the experiment's declared arms, so
-      // the expected split lines up arm-for-arm. An arm with no assignments yet
-      // contributes a zero rather than being dropped, which is what makes a
-      // never-assigned arm visible instead of silently excluded.
-      const declared = experiment.flag.variants ?? [];
-      const arms: Array<{ variant: string; visitors: number; weight: number }> =
-        declared.map((v) => ({
-          variant: v.key,
-          visitors: split.counts.find((c) => c.variant === v.key)?.visitors ?? 0,
-          weight: v.rolloutPercentage,
-        }));
+      const split = await withTimeout(
+        assignmentSplitForExperiment(key),
+        SRM_TIMEOUT_MS,
+        "SRM assignment split",
+      );
+      // Alignment rule lives in lib/assignment-split so the tests pin THIS
+      // code path rather than a copy of it.
+      const arms = alignArmsToDeclared(experiment.flag.variants ?? [], split.counts);
       const totalVisitors = arms.reduce((sum: number, a) => sum + a.visitors, 0);
       if (arms.length >= 2 && totalVisitors > 0) {
         const check = srmCheck(

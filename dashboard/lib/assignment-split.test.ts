@@ -2,25 +2,20 @@
 // The SRM read on the results page — the arm-alignment and windowing rules.
 // ----------------------------------------------------------------------------
 // assignmentSplitForExperiment itself is a SQL read and is covered by the route
-// behaviour rather than mocked here. What these tests pin is the logic the
-// route applies on top of it, which is where the reasoning lives: aligning
-// observed counts to the DECLARED arms, keeping never-assigned arms visible,
-// and feeding srmCheck a split that lines up arm-for-arm.
+// behaviour rather than mocked here. What these tests pin is the logic applied
+// on top of it, which is where the reasoning lives: aligning observed counts to
+// the DECLARED arms, keeping never-assigned arms visible, and feeding srmCheck
+// a split that lines up arm-for-arm.
+//
+// Both helpers are IMPORTED from lib/assignment-split — the same module the
+// route and LiveResults import. An earlier draft re-declared them here, which
+// meant these tests could pass while the shipped path changed underneath.
 // ============================================================================
 import { describe, it, expect } from "vitest";
 import { srmCheck } from "./ab-stats";
-
-/** Mirrors the alignment the results route performs before calling srmCheck. */
-function alignArms(
-  declared: Array<{ key: string; rolloutPercentage: number }>,
-  observed: Array<{ variant: string; visitors: number }>,
-) {
-  return declared.map((v) => ({
-    variant: v.key,
-    visitors: observed.find((c) => c.variant === v.key)?.visitors ?? 0,
-    weight: v.rolloutPercentage,
-  }));
-}
+// The REAL implementations the route and the component call — imported, not
+// re-typed here, so a change to the shipped code path cannot leave these green.
+import { alignArmsToDeclared as alignArms, isAA } from "./assignment-split";
 
 const twoArm = [
   { key: "a", rolloutPercentage: 50 },
@@ -149,8 +144,6 @@ describe("degenerate input fails soft, so the panel cannot break the page", () =
 });
 
 describe("A/A detection from the results rows", () => {
-  const isAA = (slugs: string[]) => slugs.length >= 2 && new Set(slugs).size === 1;
-
   it("recognises an A/A by every arm sharing one storefront slug", () => {
     expect(isAA(["tu_lov_uk", "tu_lov_uk"])).toBe(true);
   });
@@ -163,5 +156,18 @@ describe("A/A detection from the results rows", () => {
   it("needs at least two arms", () => {
     expect(isAA(["tu_lov_uk"])).toBe(false);
     expect(isAA([])).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A/A copy must survive the not-yet-any-assignments state
+// ---------------------------------------------------------------------------
+describe("A/A verdict is knowable before any assignment lands", () => {
+  it("is decided by the arms' slugs, not by whether a split exists yet", () => {
+    // The panel early-returns on srm === null. isAA is computed from the
+    // results rows, which exist before the first assignment event does — so
+    // the A/A warning is available in exactly the state where the page is
+    // most likely being read for the first time.
+    expect(isAA(["tu_lov_uk", "tu_lov_uk"])).toBe(true);
   });
 });
