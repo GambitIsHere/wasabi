@@ -76,6 +76,20 @@ async function doCreateSchema(): Promise<void> {
       created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `;
+  // One org per verified domain. verified_domain gates who may self-register
+  // into an org (app/api/register/route.ts) and lazy membership provisioning
+  // (lib/authz.ts), so two orgs sharing a domain would let one org's users
+  // register into the other. A partial, case-insensitive UNIQUE index makes
+  // that impossible by construction. NULL stays exempt (the WHERE clause) — an
+  // org with no verified domain configured is allowed, and many may coexist.
+  // Safe as an automatic migration: the only writers today (scripts/
+  // migrate-tenancy.ts, scripts/create-gp-603.ts) both upsert the single Sanjow
+  // row, so no existing duplicate can make this index creation fail.
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS organization_verified_domain_idx
+      ON organization (lower(verified_domain))
+      WHERE verified_domain IS NOT NULL
+  `;
   await sql`
     CREATE TABLE IF NOT EXISTS project (
       id         TEXT PRIMARY KEY,
