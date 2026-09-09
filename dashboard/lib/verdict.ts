@@ -192,7 +192,7 @@ export interface Verdict {
  * Gauss error function via Abramowitz & Stegun 7.1.26 (max abs error ~1.5e-7).
  * Good to ~6 decimals — far tighter than any A/B decision needs.
  */
-function erf(x: number): number {
+export function erf(x: number): number {
   // erf is odd: erf(-x) = -erf(x). Compute on |x| and reapply the sign.
   const sign = x < 0 ? -1 : 1;
   const ax = Math.abs(x);
@@ -210,7 +210,7 @@ function erf(x: number): number {
 }
 
 /** Standard-normal CDF Φ(x) = P(Z ≤ x), built from erf. */
-function normalCdf(x: number): number {
+export function normalCdf(x: number): number {
   return 0.5 * (1 + erf(x / Math.SQRT2));
 }
 
@@ -223,7 +223,7 @@ function normalCdf(x: number): number {
  * test for comparing two binomial proportions (auth_rate, rebill_rate, and
  * any other "ratio" metric in the registry).
  */
-function twoProportionZTest(
+export function twoProportionZTest(
   s1: number, n1: number, // variant: successes, trials
   s2: number, n2: number, // control: successes, trials
 ): { z: number; p: number } {
