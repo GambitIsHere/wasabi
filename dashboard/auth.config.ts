@@ -35,11 +35,10 @@ export const authConfig = {
   },
   callbacks: {
     // Reject any Google account whose email isn't in the RESOLVED ORG's
-    // verified domain (requirement 4 — the org record is now the source of
-    // truth, AUTH_ALLOWED_EMAIL_DOMAIN is only a fallback for an org that
-    // hasn't set verified_domain). Fails closed at every step: unresolvable
-    // org, no domain configured anywhere, non-matching email, or a
-    // suspended/pending existing account all reject.
+    // verified domain (requirement 4 — the org record is the single source of
+    // truth). Fails closed at every step: unresolvable org, no verified_domain
+    // on the org, non-matching email, or a suspended/pending existing account
+    // all reject.
     //
     // For the Credentials provider this is a no-op passthrough — its
     // authorize() (auth.ts) already fully vetted the account (password,
@@ -54,8 +53,20 @@ export const authConfig = {
       const org = await resolveOrgFromRequestHeader();
       if (!org) return false; // can't resolve the org this sign-in is for — never guess
 
-      const allowedDomain = org.verifiedDomain ?? process.env.AUTH_ALLOWED_EMAIL_DOMAIN;
-      if (!allowedDomain) return false; // no domain configured anywhere — fail closed, not "allow anything"
+      // #28 (security): the Google sign-in path provisions — and bootstraps the
+      // first active member to OWNER (below) — so it requires a REAL per-org
+      // verified_domain. The old `?? process.env.AUTH_ALLOWED_EMAIL_DOMAIN`
+      // fallback was dropped: on a domain-less org, while the global env domain
+      // was still set in prod, any Google user matching that global domain could
+      // visit the org's subdomain and be provisioned here — bootstrapped to
+      // OWNER if they were the first active member (owner-claim, the twin of the
+      // lazy-provisioning hole #28 closed in lib/authz.ts). The global env
+      // domain is not per-org identity, so a domain-less org gets NO Google
+      // sign-in provisioning (owner OR member) — its members are added by
+      // invite/approve only. This mirrors app/api/register/route.ts, which
+      // already has no env fallback.
+      const allowedDomain = org.verifiedDomain;
+      if (!allowedDomain) return false; // no verified_domain on the org — fail closed, never the global env
       if (!emailMatchesDomain(user.email, allowedDomain)) return false;
 
       // Find-or-create the user row. Google sign-in never goes through the
@@ -88,6 +99,8 @@ export const authConfig = {
       // dbUser is guaranteed active here (the status check above rejects
       // otherwise), so this Google sign-in can bootstrap a fresh org to owner —
       // Google has already verified this identity (I13's active-only rule).
+      // Safe now that a real per-org verified_domain (not the global env) is the
+      // gate above (#28) — a domain-less org never reaches this bootstrap.
       const role = await determineRoleForNewMembership(org.id, true);
       const membership = await findOrCreateMembership(dbUser.id, org.id, role);
 
