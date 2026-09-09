@@ -160,6 +160,46 @@ async function doCreateSchema(): Promise<void> {
   // by org_id first, so this index keeps that a single index scan.
   await sql`CREATE INDEX IF NOT EXISTS membership_org_idx ON membership (org_id)`;
 
+  // Invitations — the ONLY way an org admin adds someone who is NOT on the
+  // org's verified domain (a consultant, a QA contractor): the invite itself
+  // is the authorization, deliberately bypassing the domain restriction every
+  // other membership-granting path enforces (Google sign-in in auth.config.ts,
+  // password registration in app/api/register/route.ts) — see
+  // lib/invitations.ts's header for the full security model. New table,
+  // additive, safe here for the same reason organization/project/api_key/user/
+  // membership are (see this function's opening comment).
+  //
+  // token_hash mirrors api_key's key_hash: a SHA-256 hash is stored, never the
+  // raw token — the raw value exists only in the invite link handed to the
+  // admin once at creation time (lib/invitations.ts's createInvitation) and is
+  // not recoverable from this table. token_prefix (first ~8 chars of the raw
+  // token) lets the admin UI identify an invite in a list, same rationale as
+  // api_key's key_prefix. role is NEVER 'owner' — enforced in application code
+  // (lib/invitations.ts's isInvitationRole), not a CHECK constraint, matching
+  // how role enumeration is validated elsewhere in this schema (lib/roles.ts's
+  // isMembershipRole). accepted_at/revoked_at are both nullable; a still-usable
+  // ("pending") invite has neither set — see lib/invitations.ts's
+  // invitationStatus().
+  await sql`
+    CREATE TABLE IF NOT EXISTS invitation (
+      id           TEXT PRIMARY KEY,
+      org_id       TEXT NOT NULL REFERENCES organization(id),
+      email        TEXT NOT NULL,
+      role         TEXT NOT NULL,
+      token_hash   TEXT NOT NULL,
+      token_prefix TEXT NOT NULL,
+      invited_by   TEXT REFERENCES "user"(id),
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      expires_at   TIMESTAMPTZ NOT NULL,
+      accepted_at  TIMESTAMPTZ,
+      revoked_at   TIMESTAMPTZ
+    )
+  `;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS invitation_token_hash_idx ON invitation (token_hash)`;
+  // The admin members UI lists an org's invitations — filters by org_id first,
+  // same rationale as membership_org_idx above.
+  await sql`CREATE INDEX IF NOT EXISTS invitation_org_idx ON invitation (org_id)`;
+
   await sql`
     CREATE TABLE IF NOT EXISTS experiment (
       key         TEXT PRIMARY KEY,

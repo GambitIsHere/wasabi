@@ -59,6 +59,15 @@ const DIRECTLY_SCOPED_TABLES: Record<string, "org_id" | "project_id"> = {
   event: "project_id",
   metric: "project_id",
   roadmap_test: "org_id",
+  // invitation: each row belongs to exactly one org, and unlike
+  // membership/api_key/user (see lib/tenant.ts's "not tenant-scoped
+  // themselves" list) an invitation is looked up/listed/revoked BY org
+  // routinely (lib/invitations.ts's listInvitations/revokeInvitation), so it
+  // gets the same automatic guard as the five above. The one lookup that can't
+  // carry org_id — getInvitationByToken, resolving identity by bearer token
+  // before any org is known — is marked TENANT-SCOPE-EXEMPT inline, the same
+  // escape hatch lib/events.ts's pruneEvents uses.
+  invitation: "org_id",
 };
 
 /** Child tables that inherit tenancy through a parent FK instead of a column

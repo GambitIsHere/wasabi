@@ -139,6 +139,27 @@ export async function setUserStatus(id: string, status: UserStatus): Promise<Use
   return row ? toUser(row) : null;
 }
 
+/**
+ * Hard-delete a user row by id. Returns true when a row was removed, false when
+ * `id` didn't exist. Its ONLY caller is the compensating rollback in
+ * app/accept-invite/actions.ts's acceptInviteAsNewUser: createUser() succeeded
+ * but the invite was consumed/revoked before membership could be granted, so
+ * the just-created account is an unloggable orphan (active, has a password, but
+ * no membership) that also blocks a re-invite. Deleting it returns the email to
+ * pristine. In that path the user is brand-new — no membership yet (the grant
+ * is exactly what failed) and never an inviter — so a plain DELETE succeeds;
+ * `membership.user_id` is `ON DELETE CASCADE` anyway (lib/db.ts), and any stray
+ * referencing row would surface as a throw the caller deliberately swallows.
+ * Not a general-purpose account-deletion API — no other caller should reach for
+ * this without revisiting those assumptions.
+ */
+export async function deleteUser(id: string): Promise<boolean> {
+  await createSchema();
+  const sql = getSql();
+  const rows = (await sql`DELETE FROM "user" WHERE id = ${id} RETURNING id`) as unknown as { id: string }[];
+  return rows.length > 0;
+}
+
 /** True when `err` is a Postgres unique-violation (SQLSTATE 23505) — the
  *  race-safety fallback for a duplicate email that slips past
  *  app/register-actions.ts's pre-check (see createUser's header comment), and
