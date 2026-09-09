@@ -132,7 +132,10 @@ export async function requireRole(minimum: MembershipRole): Promise<RequireRoleR
   // (getCurrentOrgId's own fallback) rather than failing.
   let orgId: string;
   try {
-    orgId = await getCurrentOrgId();
+    // Pass the session we already resolved above so getCurrentOrgId ->
+    // resolveTenantOrgId does NOT call auth() a second time for this request
+    // (#30: one session resolve per authorized call, not two).
+    orgId = await getCurrentOrgId(session);
   } catch {
     return FORBIDDEN;
   }
@@ -150,13 +153,25 @@ export async function requireRole(minimum: MembershipRole): Promise<RequireRoleR
     // org's verified domain, and at the same role sign-in would assign.
     const org = await getOrgById(orgId);
     if (!org) return FORBIDDEN;
-    const allowedDomain = org.verifiedDomain ?? process.env.AUTH_ALLOWED_EMAIL_DOMAIN;
+    // #28 (security): lazy provisioning — the owner-bootstrap below included —
+    // requires a REAL per-org verified_domain. The old
+    // `?? process.env.AUTH_ALLOWED_EMAIL_DOMAIN` fallback was dropped: on a
+    // domain-less org, while the global env domain was still set in prod, any
+    // active user matching that global domain could visit the org's subdomain
+    // and be provisioned here — bootstrapped to OWNER if they were the first
+    // active member (owner-claim). We never bootstrap an owner off the global
+    // env domain now. This mirrors app/api/register/route.ts, which already
+    // refuses when verifiedDomain is falsy and has no env fallback. An org with
+    // no verified_domain simply gets no lazy provisioning (owner OR member) —
+    // an admin must add its members explicitly (invite / approve).
+    const allowedDomain = org.verifiedDomain;
     if (!allowedDomain || !emailMatchesDomain(dbUser.email, allowedDomain)) {
       return FORBIDDEN;
     }
     // dbUser is active (re-checked above), so this can bootstrap the org to
     // owner for its first active member — the live-Sanjow transition (I13's
-    // active-only rule applies equally here).
+    // active-only rule applies equally here). Safe now that a real
+    // verified_domain (not the global env) is the gate above.
     const role = await determineRoleForNewMembership(orgId, true);
     membership = await findOrCreateMembership(dbUser.id, orgId, role);
   }

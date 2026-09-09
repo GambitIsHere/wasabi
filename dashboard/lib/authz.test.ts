@@ -195,6 +195,29 @@ describe("requireRole — migration safety (no membership row yet)", () => {
     await expect(requireRole("viewer")).resolves.toMatchObject({ ok: false, status: 403 });
     expect(mockFindOrCreateMembership).not.toHaveBeenCalled();
   });
+
+  it("#28 owner-claim: does NOT provision (or bootstrap owner) off the global AUTH_ALLOWED_EMAIL_DOMAIN when the org has no verified_domain", async () => {
+    // The dropped vector: a domain-LESS org while the global env domain is still
+    // set in prod. Under the old `?? process.env.AUTH_ALLOWED_EMAIL_DOMAIN`
+    // fallback, alice@sanjow.com matched the env "sanjow.com" and — being the
+    // first active member — was bootstrapped to OWNER of an org she never
+    // belonged to. With the env fallback gone, a null verified_domain provisions
+    // nobody: no membership, no owner-bootstrap, denied.
+    vi.stubEnv("AUTH_ALLOWED_EMAIL_DOMAIN", "sanjow.com");
+    mockAuth.mockResolvedValue(session());
+    mockFindUserByEmail.mockResolvedValue(user());
+    mockGetMembership.mockResolvedValue(null);
+    mockGetOrgById.mockResolvedValue({
+      id: ORG,
+      name: "Domainless Org",
+      verifiedDomain: null, // the vulnerable case
+      createdAt: new Date().toISOString(),
+    });
+
+    await expect(requireRole("admin")).resolves.toMatchObject({ ok: false, status: 403 });
+    expect(mockDetermineRole).not.toHaveBeenCalled();
+    expect(mockFindOrCreateMembership).not.toHaveBeenCalled();
+  });
 });
 
 describe("requireRole — pre-migration token (no session.orgId)", () => {
@@ -232,11 +255,18 @@ describe("requireRole — tenant resolution follows the host-switch (Batch D-b)"
     expect(mockGetMembership).toHaveBeenCalledWith("u1", "org-b");
   });
 
-  it("denies when the caller is not a member of the resolved org — never silently re-scopes to the session org", async () => {
-    // getCurrentOrgId resolved to org-b. If the user is NOT a member of org-b,
-    // getMembership is null; with no verified-domain match to lazily provision,
-    // the request is denied — it must not quietly fall back to the session's
-    // org-a and let the action through.
+  it("re-checks membership in whatever org getCurrentOrgId returns, and denies a non-member of it (defence-in-depth)", async () => {
+    // DEFENCE-IN-DEPTH test, NOT the resolver's real behaviour. The real
+    // getCurrentOrgId (lib/tenant.resolveTenantOrgId) NEVER returns a host org
+    // the caller isn't a member of — for a non-member of the host it returns the
+    // caller's own SESSION org (proved in lib/tenant.test.ts's "keeps the SESSION
+    // org when the user is NOT a member of the host org", ~line 223, and end-to-
+    // end through requireRole in lib/authz-tenant-integration.test.ts). So the
+    // resolver handing back "org-b" for a non-member of org-b is a state that
+    // resolver can't actually produce; we force it here only to prove requireRole
+    // independently re-confirms membership in whatever org it is handed and
+    // denies when there is none — it does NOT trust the resolver blindly, and it
+    // does NOT silently re-scope to the session org to let the action through.
     mockAuth.mockResolvedValue(session({ orgId: "org-a" }));
     mockGetCurrentOrgId.mockResolvedValue("org-b");
     mockFindUserByEmail.mockResolvedValue(user());
