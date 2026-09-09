@@ -8,6 +8,7 @@
 // ============================================================================
 import { describe, expect, it } from "vitest";
 import {
+  hostForOrgSlug,
   LEGACY_PRODUCTION_HOST,
   PLATFORM_ROOT_DOMAIN,
   RESERVED_SUBDOMAINS,
@@ -198,5 +199,47 @@ describe("resolveOrgSlugFromHost — unrecognised hosts", () => {
       slug: null,
       source: "unresolvable",
     });
+  });
+});
+
+describe("hostForOrgSlug — reverse mapping for the invite branding-origin redirect (issue #26)", () => {
+  it("swaps the subdomain label on a <slug>.optimiser.pro host", () => {
+    expect(hostForOrgSlug("sanjow.optimiser.pro", "acme")).toBe("acme.optimiser.pro");
+  });
+
+  it("preserves the port on a <slug>.localhost dev host", () => {
+    expect(hostForOrgSlug("sanjow.localhost:3000", "acme")).toBe("acme.localhost:3000");
+  });
+
+  it("round-trips with resolveOrgSlugFromHost", () => {
+    const target = hostForOrgSlug("sanjow.optimiser.pro", "acme");
+    expect(target).not.toBeNull();
+    expect(resolveOrgSlugFromHost(target, null, false).slug).toBe("acme");
+  });
+
+  it("lowercases the target slug", () => {
+    expect(hostForOrgSlug("sanjow.optimiser.pro", "AcMe")).toBe("acme.optimiser.pro");
+  });
+
+  it("returns null for hosts with no per-org subdomain to swap", () => {
+    expect(hostForOrgSlug(LEGACY_PRODUCTION_HOST, "acme")).toBeNull();
+    expect(hostForOrgSlug("localhost:3000", "acme")).toBeNull();
+    expect(hostForOrgSlug("127.0.0.1", "acme")).toBeNull();
+    expect(hostForOrgSlug("wasabi-abc123.vercel.app", "acme")).toBeNull();
+    expect(hostForOrgSlug(PLATFORM_ROOT_DOMAIN, "acme")).toBeNull();
+    expect(hostForOrgSlug("totally-unrelated-domain.com", "acme")).toBeNull();
+  });
+
+  it("refuses a multi-level subdomain rather than guess which label is the org", () => {
+    expect(hostForOrgSlug("foo.bar.optimiser.pro", "acme")).toBeNull();
+  });
+
+  it("returns null for an empty/missing host or an empty/reserved target slug", () => {
+    expect(hostForOrgSlug("", "acme")).toBeNull();
+    expect(hostForOrgSlug(null, "acme")).toBeNull();
+    expect(hostForOrgSlug("sanjow.optimiser.pro", "")).toBeNull();
+    for (const reserved of RESERVED_SUBDOMAINS) {
+      expect(hostForOrgSlug("sanjow.optimiser.pro", reserved)).toBeNull();
+    }
   });
 });

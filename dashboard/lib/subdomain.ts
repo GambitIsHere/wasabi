@@ -222,3 +222,52 @@ export function resolveOrgSlugFromHost(
   // 6. Anything else — a host this app doesn't otherwise recognise.
   return UNRESOLVED;
 }
+
+/**
+ * The reverse of resolveOrgSlugFromHost, for the subdomain-per-org shapes ONLY:
+ * given the current request's Host and a TARGET org slug, return the Host that
+ * names that org on the SAME shape — `<slug>.optimiser.pro` or `<slug>.localhost`
+ * — with the port preserved (dev's `sanjow.localhost:3000`).
+ *
+ * Returns null for every shape that has no per-org subdomain to swap: the legacy
+ * production host, bare localhost/127.0.0.1, `*.vercel.app`, the bare apex, or an
+ * unrecognised host. On those there is no distinct per-org origin to point at, so
+ * a caller treats null as "render in place". Also null when `targetSlug` is empty
+ * or reserved (www/app/api/admin — never a real org slug).
+ *
+ * Pure / Edge-safe, mirroring resolveOrgSlugFromHost. Rewrites the host STRING
+ * only — it does NOT check the target org exists (that's lib/org.ts's job).
+ */
+export function hostForOrgSlug(rawHost: string | null | undefined, targetSlug: string): string | null {
+  const raw = (rawHost ?? "").trim();
+  if (raw.length === 0) return null;
+
+  const slug = normalizeSlug(targetSlug);
+  if (slug.length === 0 || slug.includes(".") || RESERVED_SUBDOMAINS.has(slug)) return null;
+
+  // Split host / port so the port survives the swap. The port keeps its literal
+  // form (e.g. ":3000"); only the hostname is matched, case-insensitively.
+  const colon = raw.indexOf(":");
+  const hostname = (colon === -1 ? raw : raw.slice(0, colon)).toLowerCase();
+  const port = colon === -1 ? "" : raw.slice(colon);
+
+  const platformSuffix = `.${PLATFORM_ROOT_DOMAIN}`;
+  if (hostname.endsWith(platformSuffix)) {
+    const label = hostname.slice(0, -platformSuffix.length);
+    // Only a single-label subdomain is a supported org shape — refuse a
+    // multi-level host (foo.bar.optimiser.pro) rather than guess which label
+    // is the org, matching resolveLabel's own rule.
+    if (label.length === 0 || label.includes(".")) return null;
+    return `${slug}.${PLATFORM_ROOT_DOMAIN}${port}`;
+  }
+
+  if (hostname.endsWith(LOCALHOST_SUFFIX)) {
+    const label = hostname.slice(0, -LOCALHOST_SUFFIX.length);
+    if (label.length === 0 || label.includes(".")) return null;
+    return `${slug}${LOCALHOST_SUFFIX}${port}`;
+  }
+
+  // Legacy host, bare localhost/127.0.0.1, *.vercel.app, apex, unrecognised —
+  // no per-org subdomain to rewrite.
+  return null;
+}
