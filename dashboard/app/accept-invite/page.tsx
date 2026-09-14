@@ -27,6 +27,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { BrandMark } from "@/components/BrandMark";
 import {
   emailMatchesInvitation,
   getInvitationByToken,
@@ -225,8 +226,8 @@ function InviteShell({ title, children }: { title: ReactNode; children: ReactNod
     <div className="flex min-h-[60vh] items-center justify-center">
       <div className="w-full max-w-md space-y-6 rounded-2xl border border-line bg-bg-deep p-8 shadow-[0_24px_64px_-32px_rgba(0,0,0,0.4)]">
         <div className="space-y-3 text-center">
-          <div className="text-4xl" aria-hidden="true">
-            🌶
+          <div className="flex justify-center pb-1">
+            <BrandMark size="lg" />
           </div>
           <p className="eyebrow">Invitation</p>
           <h1 className="font-display text-2xl font-bold tracking-tight text-fg">{title}</h1>

@@ -25,7 +25,7 @@ import { requireSuperAdmin } from "@/lib/superadmin";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
-  title: "Operator console — Wasabi",
+  title: "Operator console — Optimiser.Pro",
   robots: { index: false, follow: false },
 };
 

@@ -72,7 +72,7 @@ export function ExperimentHealth({
           </h2>
           <p className="mt-0.5 text-xs text-faint">
             Assignments confirm visitors are being bucketed; goal captures
-            confirm the goal event reaches Wasabi.
+            confirm the goal event reaches Optimiser.Pro.
           </p>
         </div>
         {receiving ? (

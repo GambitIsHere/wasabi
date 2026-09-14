@@ -10,6 +10,7 @@
 // comment: it never trusts anything the client sends for this).
 // ============================================================================
 import Link from "next/link";
+import { BrandMark } from "@/components/BrandMark";
 import { RegisterForm } from "@/components/RegisterForm";
 // The pure policy module, not "@/lib/password" — see that file's header on
 // why only the client-safe half should ever be imported where it isn't
@@ -27,7 +28,7 @@ export default async function RegisterPage() {
     <div className="flex min-h-[60vh] items-center justify-center">
       <div className="w-full max-w-md space-y-8 rounded-2xl border border-line bg-bg-deep p-8 shadow-[0_24px_64px_-32px_rgba(0,0,0,0.4)]">
         <div className="space-y-3 text-center">
-          <div className="text-4xl" aria-hidden="true">🌶</div>
+          <div className="flex justify-center pb-1"><BrandMark size="lg" /></div>
           <p className="eyebrow">Register</p>
           <h1 className="font-display text-2xl font-bold tracking-tight text-fg">
             Join <span className="serif-accent">{org.name}</span>
