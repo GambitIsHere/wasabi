@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { DM_Sans, DM_Mono } from "next/font/google";
+import { BrandMark } from "@/components/BrandMark";
 import { SiteNav } from "@/components/SiteNav";
 import { UnknownWorkspace } from "@/components/UnknownWorkspace";
 import { auth } from "@/auth";
@@ -26,9 +27,9 @@ const mono = DM_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Optimiser.Pro — in-house experimentation",
+  title: "Optimiser.Pro — experimentation",
   description:
-    "Optimiser.Pro is Sanjow's in-house, PostHog-compatible experimentation engine: sticky variant assignment plus a payment-P&L verdict on every test.",
+    "Run the A/B split, join every variant back to real payment data, and read a verdict: which arm earned more per acquired customer, and whether the difference is statistically real.",
 };
 
 // Runs synchronously in <head> before first paint: reads the persisted theme
@@ -84,15 +85,8 @@ export default async function RootLayout({
         <header className="sticky top-0 z-20 border-b border-line bg-bg/80 backdrop-blur-md">
           <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
             <Link href="/" className="group flex items-center gap-2.5">
-              {/* Signal brand mark — a glowing neon dot, the single warm pop. */}
-              <span
-                aria-hidden="true"
-                className="size-2.5 shrink-0 rounded-full bg-neon"
-                style={{
-                  boxShadow:
-                    "0 0 0 4px color-mix(in srgb, var(--color-neon) 18%, transparent), 0 0 14px color-mix(in srgb, var(--color-neon) 60%, transparent)",
-                }}
-              />
+              {/* Signal brand mark — the glowing neon dot (components/BrandMark). */}
+              <BrandMark />
               <span className="font-display text-xl font-semibold tracking-tight text-fg transition-colors group-hover:text-accent">
                 Optimiser<span className="text-neon">.</span>Pro
               </span>
@@ -110,10 +104,15 @@ export default async function RootLayout({
         </main>
         <footer className="mx-auto flex max-w-6xl flex-wrap items-baseline justify-between gap-4 px-5 pb-12 pt-6 font-mono text-[11px] text-muted">
           <span>
-            PostHog-compatible assignment · payment-P&amp;L verdicts
+            Experimentation · variant P&amp;L · verdicts
           </span>
           <span>
-            Sanjow Ventures · <span className="text-accent">Optimiser.Pro</span>
+            <a
+              href="https://optimiser.pro"
+              className="transition-colors hover:text-accent"
+            >
+              optimiser<span className="text-accent">.</span>pro
+            </a>
           </span>
         </footer>
       </body>

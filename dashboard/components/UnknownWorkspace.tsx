@@ -10,11 +10,13 @@
 // by definition without a resolved tenant, so it must not leak anything about
 // the multi-tenant structure itself.
 // ============================================================================
+import { BrandMark } from "@/components/BrandMark";
+
 export function UnknownWorkspace() {
   return (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-line-strong bg-surface px-6 py-16 text-center">
-      <div className="mb-3 text-3xl" aria-hidden="true">
-        🌶
+      <div className="mb-4 flex justify-center">
+        <BrandMark size="lg" />
       </div>
       <h1 className="font-display text-lg font-semibold text-fg">
         Unknown workspace
