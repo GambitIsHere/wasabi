@@ -59,6 +59,7 @@ export const RESERVED_SUBDOMAINS: ReadonlySet<string> = new Set([
   "app",
   "api",
   "admin",
+  "members", // the membership portal (op-mz) at members.optimiser.pro
 ]);
 
 /** Optimiser.Pro's own domain — the real multi-tenant pattern is
