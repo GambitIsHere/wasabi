@@ -33,7 +33,11 @@ export default async function SignInPage({
 }) {
   const { error, code, callbackUrl } = await searchParams;
   const org = await getResolvedOrgOrThrow();
-  const allowedDomain = org.verifiedDomain ?? process.env.AUTH_ALLOWED_EMAIL_DOMAIN ?? "sanjow.com";
+  // The org record is the ONLY source of truth for the domain restriction
+  // (#28/#33 dropped the AUTH_ALLOWED_EMAIL_DOMAIN fallback on the auth paths;
+  // this page must not advertise a domain the gate will not honour). A
+  // domain-less org is invite-only, and the copy below says so.
+  const allowedDomain = org.verifiedDomain;
 
   async function signInWithGoogle() {
     "use server";
@@ -73,13 +77,18 @@ export default async function SignInPage({
           <h1 className="font-display text-2xl font-bold tracking-tight text-fg">
             Sign in to <span className="serif-accent">{org.name}</span>
           </h1>
-          <p className="text-sm text-muted">
-            Restricted to{" "}
-            <code className="font-mono text-xs text-accent/90">
-              @{allowedDomain}
-            </code>{" "}
-            accounts.
-          </p>
+          {allowedDomain ? (
+            <p className="text-sm text-muted">
+              Restricted to{" "}
+              <code className="font-mono text-xs text-accent/90">@{allowedDomain}</code>{" "}
+              accounts.
+            </p>
+          ) : (
+            <p className="text-sm text-muted">
+              Access to this workspace is by invitation. Sign in with the address you were
+              invited with.
+            </p>
+          )}
         </div>
 
         {error && <SignInError error={error} code={code} allowedDomain={allowedDomain} />}
@@ -104,7 +113,7 @@ export default async function SignInPage({
               name="email"
               required
               autoComplete="email"
-              placeholder={`you@${allowedDomain}`}
+              placeholder={allowedDomain ? `you@${allowedDomain}` : "you@company.com"}
               className="rounded-lg border border-line-strong bg-bg px-3 py-2 text-sm text-fg placeholder:text-faint focus:border-accent/60 focus:outline-none focus:ring-1 focus:ring-accent/40"
             />
           </label>
@@ -148,7 +157,7 @@ function SignInError({
 }: {
   error: string;
   code?: string;
-  allowedDomain: string;
+  allowedDomain: string | null;
 }) {
   // Auth.js maps internal errors to a few canonical codes — surface the ones
   // a user can act on; collapse the rest to a generic message. For
@@ -158,7 +167,9 @@ function SignInError({
   // reasons with one indistinguishable message.
   const message =
     error === "AccessDenied"
-      ? `That Google account isn't an @${allowedDomain} address, isn't active yet, or doesn't have access to this workspace. Sign out of Google and try a different account.`
+      ? allowedDomain
+        ? `That Google account isn't an @${allowedDomain} address, isn't active yet, or doesn't have access to this workspace. Sign out of Google and try a different account.`
+        : "That Google account isn't active yet or doesn't have access to this workspace. Sign out of Google and try a different account."
       : error === "Configuration"
         ? "Sign-in is misconfigured server-side — check AUTH_* env vars."
         : error === "CredentialsSignin" && code === "rate_limited"
