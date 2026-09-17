@@ -4,6 +4,7 @@
 // POST it to /api/admin/import-vwo. Idempotent upsert — safe to re-run. Renders
 // the per-campaign result inline and soft-refreshes so /archive picks it up.
 import { useState, useTransition } from "react";
+import { Spinner } from "@/components/Spinner";
 import { useRouter } from "next/navigation";
 
 interface ImportResult {
@@ -113,7 +114,13 @@ export function ImportVwoForm() {
             : "cursor-not-allowed bg-bg text-faint"
         }`}
       >
-        {pending ? "Importing…" : "Import experiments"}
+        {pending ? (
+                <span className="inline-flex items-center gap-2">
+                  <Spinner variant="bars" label="Importing" /> Importing…
+                </span>
+              ) : (
+                "Import experiments"
+              )}
       </button>
 
       {result && <ResultPanel result={result} />}

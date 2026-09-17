@@ -1,14 +1,19 @@
-// House loaders (Signal) — "bars" and "infinite", the two loaders that read as
-// "measuring", not "stuck". Both are CSS/SVG only (no WebGL, no LCP tax) and
-// inherit `color`, so they tint to the accent token by default and can be
-// retinted with a text-* class. Used for inline in-progress states — an action
-// running, results being fetched. Visual styling lives in globals.css
-// (.spinner-bars / .spinner-infinite); reduced-motion collapses the animation
-// via the global rule there. Server-safe (no client hooks).
+// Signal loaders — four variants, each carrying one meaning so a wait tells the
+// operator what kind of wait it is:
+//   bars      an action of YOURS is running (submit buttons, toggles)      — house
+//   infinite  a verdict is being computed (results, Metabase reads)        — house
+//   circle    a short in-row wait (assignment tester, a pill mid-toggle)
+//   dots      waiting on something EXTERNAL (first capture, a webhook)
+// All CSS/SVG (no WebGL, no LCP tax), inherit `color` so they tint to the accent
+// by default and retint with a text-* class, and size with the font (1em) so they
+// sit inside a button. Styling lives in globals.css (.spinner-*); the global
+// reduced-motion rule collapses the animation. Server-safe (no client hooks).
+// The same four variants ship in the marketing site and the membership portal.
+type SpinnerVariant = "bars" | "infinite" | "circle" | "dots";
+
 type SpinnerProps = {
-  /** "bars" (default) for inline/button waits; "infinite" for a roomier beat. */
-  variant?: "bars" | "infinite";
-  /** Extra classes — e.g. sizing. */
+  variant?: SpinnerVariant;
+  /** Extra classes — e.g. sizing or retinting. */
   className?: string;
   /** Inline overrides — use `color` to retint (wins over the accent default). */
   style?: React.CSSProperties;
@@ -26,14 +31,10 @@ export function Spinner({
   style,
   label = "Loading",
 }: SpinnerProps) {
+  const cls = `spinner-${variant} ${className}`.trim();
   if (variant === "infinite") {
     return (
-      <span
-        className={`spinner-infinite ${className}`.trim()}
-        style={style}
-        role="status"
-        aria-label={label}
-      >
+      <span className={cls} style={style} role="status" aria-label={label}>
         <svg width={44} height={26} viewBox="0 0 52 30" aria-hidden="true">
           <path className="track" d={INFINITE_PATH} />
           <path className="run" d={INFINITE_PATH} />
@@ -41,13 +42,20 @@ export function Spinner({
       </span>
     );
   }
+  if (variant === "circle") {
+    return <span className={cls} style={style} role="status" aria-label={label} />;
+  }
+  if (variant === "dots") {
+    return (
+      <span className={cls} style={style} role="status" aria-label={label}>
+        <i />
+        <i />
+        <i />
+      </span>
+    );
+  }
   return (
-    <span
-      className={`spinner-bars ${className}`.trim()}
-      style={style}
-      role="status"
-      aria-label={label}
-    >
+    <span className={cls} style={style} role="status" aria-label={label}>
       <i />
       <i />
       <i />
@@ -56,3 +64,5 @@ export function Spinner({
     </span>
   );
 }
+
+export type { SpinnerVariant };

@@ -100,7 +100,7 @@ export function AssignmentTester({ experimentKey, sampleId }: Props) {
           {view.status === "loading" ? (
             <>
               <Spinner
-                variant="bars"
+                variant="circle"
                 label="Resolving"
                 style={{ color: "var(--color-bg)", height: "0.9em" }}
               />

@@ -17,6 +17,7 @@
 // — never a "you're all set" that isn't true yet.
 // ============================================================================
 import { useState, useTransition } from "react";
+import { Spinner } from "@/components/Spinner";
 // MUST be "@/lib/password-policy", never "@/lib/password" — this is a client
 // component, and lib/password.ts both guards itself with `if (typeof window
 // !== "undefined") throw` AND imports a native Node addon (@node-rs/argon2);
@@ -147,7 +148,13 @@ export function RegisterForm({ allowedDomain }: Props) {
       )}
 
       <button type="submit" disabled={pending} className="btn-primary w-full py-3">
-        {pending ? "Creating account…" : "Create account"}
+        {pending ? (
+                <span className="inline-flex items-center gap-2">
+                  <Spinner variant="bars" label="Creating account" /> Creating account…
+                </span>
+              ) : (
+                "Create account"
+              )}
       </button>
     </form>
   );

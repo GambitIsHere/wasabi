@@ -15,6 +15,7 @@
 // see lib/metrics-core.ts's VARIANT_ROW_NUMERIC_FIELDS doc comment).
 // ============================================================================
 import { useId, useMemo, useRef, useState, useTransition } from "react";
+import { Spinner } from "@/components/Spinner";
 import { useRouter } from "next/navigation";
 import {
   DECIMALS_MAX,
@@ -779,7 +780,15 @@ function MetricForm({
 
       <div className="flex items-center gap-3">
         <button type="submit" disabled={!canSubmit} className="btn-primary px-4 py-2 text-sm">
-          {pending ? "Saving…" : isCreate ? "Create metric" : "Save changes"}
+          {pending ? (
+            <span className="inline-flex items-center gap-2">
+              <Spinner variant="bars" label="Saving" /> Saving…
+            </span>
+          ) : isCreate ? (
+            "Create metric"
+          ) : (
+            "Save changes"
+          )}
         </button>
         <button
           type="button"

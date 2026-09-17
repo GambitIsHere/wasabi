@@ -4,6 +4,7 @@
 // the result inline. Soft refresh on success so the home page picks up the
 // new seeds without a full reload.
 import { useState, useTransition } from "react";
+import { Spinner } from "@/components/Spinner";
 import { useRouter } from "next/navigation";
 
 interface ReseedResult {
@@ -75,7 +76,13 @@ export function ReseedButton() {
             : "cursor-not-allowed bg-bg text-faint"
         }`}
       >
-        {pending ? "Reseeding…" : "Reseed live DB"}
+        {pending ? (
+                <span className="inline-flex items-center gap-2">
+                  <Spinner variant="bars" label="Reseeding" /> Reseeding…
+                </span>
+              ) : (
+                "Reseed live DB"
+              )}
       </button>
 
       {result && <ResultPanel result={result} />}

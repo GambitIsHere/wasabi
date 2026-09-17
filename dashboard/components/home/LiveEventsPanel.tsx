@@ -4,6 +4,7 @@
 // simply absent without it. Each kind gets a Unicode glyph (no emoji) coloured by
 // outcome. Empty store → a clean placeholder.
 import type { ActivityItem, ActivityKind } from "@/lib/home";
+import { Spinner } from "@/components/Spinner";
 
 const GLYPH: Record<ActivityKind, { char: string; cls: string; label: string }> = {
   auth: { char: "✓", cls: "text-good", label: "payment authorised" },
@@ -43,7 +44,8 @@ export function LiveEventsPanel({ feed }: { feed: ActivityItem[] }) {
         <span className="font-mono text-xs text-faint">{rateLabel(feed)}</span>
       </header>
       {feed.length === 0 ? (
-        <p className="px-5 py-10 text-center text-sm text-faint">
+        <p className="flex flex-col items-center gap-3 px-5 py-10 text-center text-sm text-faint">
+          <Spinner variant="dots" label="Waiting for the first event" className="text-base" />
           No events yet — captures will appear here.
         </p>
       ) : (
