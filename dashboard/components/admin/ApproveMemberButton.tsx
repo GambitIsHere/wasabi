@@ -10,6 +10,7 @@
 // visible at all is not itself a security boundary.
 // ============================================================================
 import { useState, useTransition } from "react";
+import { Spinner } from "@/components/Spinner";
 import { approvePendingUser } from "@/app/admin/members/actions";
 
 export function ApproveMemberButton({ userId }: { userId: string }) {
@@ -41,7 +42,13 @@ export function ApproveMemberButton({ userId }: { userId: string }) {
         disabled={pending}
         className="rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-xs font-medium text-fg transition-colors hover:border-accent/60 hover:text-accent focus-visible:border-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {pending ? "Approving…" : "Approve"}
+        {pending ? (
+                <span className="inline-flex items-center gap-2">
+                  <Spinner variant="bars" label="Approving" /> Approving…
+                </span>
+              ) : (
+                "Approve"
+              )}
       </button>
       {error && (
         <p role="alert" className="text-[11px] text-bad">

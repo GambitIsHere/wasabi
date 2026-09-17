@@ -16,6 +16,7 @@
 // of the app's forms; the server action re-checks all of it regardless.
 // ============================================================================
 import { useState, useTransition } from "react";
+import { Spinner } from "@/components/Spinner";
 import { useRouter } from "next/navigation";
 // MUST be "@/lib/password-policy", never "@/lib/password" — this is a client
 // component, and lib/password.ts guards itself with `if (typeof window) throw`
@@ -169,7 +170,13 @@ export function AcceptInviteForm({ token, role, email }: Props) {
       </div>
 
       <button type="submit" disabled={pending} className="btn-primary w-full py-3">
-        {pending ? "Creating account…" : `Join as ${role}`}
+        {pending ? (
+          <span className="inline-flex items-center gap-2">
+            <Spinner variant="bars" label="Creating account" /> Creating account…
+          </span>
+        ) : (
+          `Join as ${role}`
+        )}
       </button>
     </form>
   );

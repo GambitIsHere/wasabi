@@ -15,6 +15,7 @@
 // admin to wonder why nothing arrived in the invitee's inbox.
 // ============================================================================
 import { useId, useState, useTransition } from "react";
+import { Spinner } from "@/components/Spinner";
 import { inviteMember } from "@/app/admin/members/actions";
 
 // Mirrors lib/invitations.ts's own (unexported) INVITATION_ROLES — "owner" is
@@ -104,7 +105,13 @@ export function InviteMemberForm() {
           disabled={pending || email.trim().length === 0}
           className="btn-primary px-4 py-2 text-sm"
         >
-          {pending ? "Sending…" : "Send invite"}
+          {pending ? (
+                <span className="inline-flex items-center gap-2">
+                  <Spinner variant="bars" label="Sending" /> Sending…
+                </span>
+              ) : (
+                "Send invite"
+              )}
         </button>
       </form>
 

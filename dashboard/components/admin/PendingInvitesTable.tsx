@@ -14,6 +14,7 @@
 // turned back into a usable link.
 // ============================================================================
 import { useEffect, useId, useRef, useState, useTransition } from "react";
+import { Spinner } from "@/components/Spinner";
 import { useRouter } from "next/navigation";
 import { inviteMember, revokeInvite } from "@/app/admin/members/actions";
 import type { InvitationRole } from "@/lib/invitations";
@@ -170,7 +171,7 @@ function PendingInviteRowItem({ invite }: { invite: PendingInviteRow }) {
                 disabled={pending}
                 className="rounded-md border border-line-strong bg-surface px-2.5 py-1 text-xs font-medium text-faint transition-colors hover:border-accent/40 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {pending ? "…" : "Resend"}
+                {pending ? <Spinner variant="bars" label="Resending" /> : "Resend"}
               </button>
             )}
             {!confirming ? (
@@ -196,7 +197,13 @@ function PendingInviteRowItem({ invite }: { invite: PendingInviteRow }) {
                   disabled={pending}
                   className="rounded-md border border-bad/50 bg-bad/15 px-2.5 py-1 text-xs font-medium text-bad hover:bg-bad/25"
                 >
-                  {pending ? "Revoking…" : "Confirm"}
+                  {pending ? (
+                <span className="inline-flex items-center gap-2">
+                  <Spinner variant="bars" label="Revoking" /> Revoking…
+                </span>
+              ) : (
+                "Confirm"
+              )}
                 </button>
                 <button
                   type="button"

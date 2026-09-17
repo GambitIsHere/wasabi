@@ -11,6 +11,7 @@
 // page recomputes both from the DB on the refresh a successful action triggers.
 // ============================================================================
 import { useState, useTransition } from "react";
+import { Spinner } from "@/components/Spinner";
 import {
   approveMemberAction,
   changeMemberRoleAction,
@@ -157,7 +158,13 @@ export function MemberRow({
                 disabled={pending}
                 className="rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-xs font-medium text-fg transition-colors hover:border-accent/60 hover:text-accent focus-visible:border-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {pending ? "Working…" : "Approve"}
+                {pending ? (
+                <span className="inline-flex items-center gap-2">
+                  <Spinner variant="bars" label="Working" /> Working…
+                </span>
+              ) : (
+                "Approve"
+              )}
               </button>
             )}
             {canManage &&
@@ -169,7 +176,13 @@ export function MemberRow({
                     disabled={pending}
                     className="rounded-lg border border-bad/50 bg-bad/10 px-3 py-1.5 text-xs font-medium text-bad transition-colors hover:border-bad focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bad/40 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {pending ? "Removing…" : "Confirm"}
+                    {pending ? (
+                <span className="inline-flex items-center gap-2">
+                  <Spinner variant="bars" label="Removing" /> Removing…
+                </span>
+              ) : (
+                "Confirm"
+              )}
                   </button>
                   <button
                     type="button"

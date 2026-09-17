@@ -5,6 +5,7 @@
 // and reflects state via router.refresh() after the action resolves, so the
 // list/detail re-read from the DB — no optimistic divergence.
 import { useEffect, useRef, useState, useTransition } from "react";
+import { Spinner } from "@/components/Spinner";
 import { useRouter } from "next/navigation";
 import { setExperimentActive, deleteExperiment } from "@/app/actions";
 
@@ -82,7 +83,13 @@ export function ExperimentControls({
               : "border border-good/40 bg-good/10 text-good hover:bg-good/20"
           }`}
         >
-          {pending ? "…" : active ? "Pause" : "Activate"}
+          {pending ? (
+            <Spinner variant="bars" label={active ? "Pausing" : "Activating"} />
+          ) : active ? (
+            "Pause"
+          ) : (
+            "Activate"
+          )}
         </button>
 
         {!confirming ? (
@@ -108,7 +115,13 @@ export function ExperimentControls({
               disabled={pending}
               className={`${btnBase} border border-bad/50 bg-bad/15 text-bad hover:bg-bad/25`}
             >
-              {pending ? "Deleting…" : "Confirm"}
+              {pending ? (
+                <span className="inline-flex items-center gap-2">
+                  <Spinner variant="bars" label="Deleting" /> Deleting…
+                </span>
+              ) : (
+                "Confirm"
+              )}
             </button>
             <button
               type="button"

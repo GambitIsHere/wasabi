@@ -3,6 +3,7 @@
 // local event store (via lib/events.experimentWiring) — no Metabase — so it
 // degrades to a clean "not wired yet" state whenever there are no events.
 import type { ExperimentWiring, WiringCounts } from "@/lib/events";
+import { Spinner } from "@/components/Spinner";
 import { ControlBadge } from "@/components/pills";
 
 const ZERO: WiringCounts = {
@@ -89,10 +90,13 @@ export function ExperimentHealth({
       </header>
 
       {!receiving && (
-        <p className="border-b border-line px-5 py-3 text-xs text-muted">
+        <p className="flex items-start gap-2.5 border-b border-line px-5 py-3 text-xs text-muted">
+          <Spinner variant="dots" label="Waiting for the first assignment" className="mt-0.5 shrink-0" />
+          <span>
           No assignments captured yet. Once the storefront middleware routes
           traffic through this experiment, assignments and goal captures land
           here. Use the assignment tester below to fire a sample event.
+          </span>
         </p>
       )}
 
